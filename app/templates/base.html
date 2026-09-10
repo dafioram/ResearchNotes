@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Research Notes{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="wrap">
+    <div class="topbar">
+      <div class="topbar-row">
+        <a class="wordmark" href="{{ url_for('notes.feed') }}">Research Notes</a>
+        <nav class="nav">
+          <a href="{{ url_for('notes.new_note_form') }}" class="primary">New note</a>
+          <a href="{{ url_for('notes.random_note') }}">Random</a>
+          <a href="{{ url_for('notes.orphans') }}">Orphans</a>
+          <a href="{{ url_for('notes.graph_global') }}">Graph</a>
+          <a href="{{ url_for('notes.trash') }}">Trash</a>
+        </nav>
+      </div>
+    </div>
+
+    {% with messages = get_flashed_messages() %}
+      {% if messages %}
+        {% for m in messages %}
+          <div class="flash">{{ m }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+  </div>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

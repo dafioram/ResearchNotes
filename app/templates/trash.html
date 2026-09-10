@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Trash &middot; Research Notes{% endblock %}
+{% block content %}
+
+  <p class="section-title">Trash &mdash; soft-deleted notes</p>
+
+  {% if notes %}
+    <div class="trash-list">
+      {% for n in notes %}
+        <div class="trash-row">
+          <span>No. {{ n['id'] }} &mdash; deleted {{ n['deleted_at'][:10] }}</span>
+          <form method="post" action="{{ url_for('notes.restore_note', note_id=n['id']) }}">
+            <button type="submit" class="btn-quiet">Restore</button>
+          </form>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty-state">Trash is empty.</div>
+  {% endif %}
+
+{% endblock %}

@@ -1,0 +1,12 @@
+services:
+  research-notes:
+    build: .
+    ports:
+      - "${PORT:-5000}:${PORT:-5000}"
+    environment:
+      - PORT=${PORT:-5000}
+      - HOST=0.0.0.0
+      - SECRET_KEY=${SECRET_KEY:-}
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped

@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Orphans &middot; Research Notes{% endblock %}
+{% block content %}
+
+  <p class="section-title">Orphans &mdash; notes with no incoming or outgoing links</p>
+
+  {% if notes %}
+    <div class="note-list">
+      {% for n in notes %}
+        <div class="note-card" data-note-id="{{ n['id'] }}"
+             data-fragment-url="{{ url_for('notes.note_fragment', note_id=n['id']) }}">
+          <div class="note-card-top">
+            <div class="meta">
+              <a class="meta-item meta-link" href="{{ url_for('notes.view_note', note_id=n['id']) }}">No. {{ n['id'] }}</a>
+              <span class="meta-item">{{ n['sort_date'] }}</span>
+              <span class="meta-item">{{ n['line_count'] }} line{{ 's' if n['line_count'] != 1 else '' }}</span>
+            </div>
+            <div class="note-card-actions">
+              <a class="card-action" href="{{ url_for('notes.edit_note_form', note_id=n['id']) }}">Edit</a>
+              <button type="button" class="disclosure-btn" aria-expanded="false" aria-label="Expand note {{ n['id'] }}">
+                <span class="disclosure-icon" aria-hidden="true">&#9656;</span>
+              </button>
+            </div>
+          </div>
+          <div class="card-clickzone" data-role="clickzone">
+            <div class="snippet" data-role="snippet">{{ n['snippet_html'] | safe }}</div>
+            <div class="full-view" data-role="full" hidden></div>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty-state">Every note is connected to at least one other. Nothing orphaned.</div>
+  {% endif %}
+
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='feed.js') }}"></script>
+{% endblock %}

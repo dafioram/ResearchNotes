@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}{% if center %}Graph around note {{ center }}{% else %}Graph{% endif %} &middot; Research Notes{% endblock %}
+{% block content %}
+
+  <div class="graph-toolbar">
+    {% if center %}
+      <span>Local graph around <strong>No. {{ center }}</strong></span>
+      <a href="{{ url_for('notes.graph_global') }}">View global graph</a>
+      <a href="{{ url_for('notes.view_note', note_id=center) }}">Back to note</a>
+      <label style="margin-left:auto;">
+        hops
+        <select id="hops-select">
+          {% for h in [1, 2, 3] %}
+            <option value="{{ h }}" {% if h == hops %}selected{% endif %}>{{ h }}</option>
+          {% endfor %}
+        </select>
+      </label>
+    {% else %}
+      <span>Global graph &mdash; every note with at least one link</span>
+    {% endif %}
+  </div>
+
+  <div id="graph-canvas"
+       data-endpoint="{% if center %}{{ url_for('notes.api_graph_ego', note_id=center, hops=hops) }}{% else %}{{ url_for('notes.api_graph_global') }}{% endif %}"
+       data-center="{{ center or '' }}"></div>
+
+  <div class="graph-legend">
+    <span><span class="legend-swatch" style="background:#26415c;"></span>note</span>
+    <span><span class="legend-swatch" style="background:#fbfaf6;border:1px dashed #a83b2d;"></span>missing / broken reference</span>
+    <span><span class="legend-swatch" style="background:#a83b2d;"></span>link to a missing note</span>
+  </div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="https://unpkg.com/cytoscape@3.31.0/dist/cytoscape.min.js"></script>
+<script src="{{ url_for('static', filename='graph.js') }}"></script>
+{% endblock %}
