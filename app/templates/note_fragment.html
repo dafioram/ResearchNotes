@@ -1,19 +1,6 @@
-<div class="note-body note-body-inline">
-  {{ note['html'] | safe }}
-</div>
-
-{% if attachments %}
-<div class="section">
-  <p class="section-title">Attachments</p>
-  <ul class="attachment-list">
-    {% for a in attachments %}
-      <li class="attachment-row">
-        <a href="{{ url_for('notes.serve_attachment', file_hash=a['hash']) }}" target="_blank" rel="noopener">
-          {{ a['filename'] }}
-        </a>
-        <span class="size">{{ (a['size'] / 1024) | round(1) }} KB</span>
-      </li>
-    {% endfor %}
-  </ul>
-</div>
-{% endif %}
+{# Inline expansion of a note on the feed. Backlinks are capped so a
+   heavily-linked note doesn't take over the feed; its page shows them all. #}
+{% set inline = true %}
+{% set backlink_limit = 10 %}
+{% set more_url = url_for('notes.view_note', note_id=note['id']) %}
+{% include "_note_view_pane.html" %}

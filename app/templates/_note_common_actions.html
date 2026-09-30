@@ -1,0 +1,16 @@
+{#
+  Actions available in both View and Edit mode of a saved note.
+  "View graph" is greyed out, with an explanation on hover, when the note
+  has no links in or out (a graph of one box would say nothing); app.js
+  flips it after a save that adds or removes the note's only link.
+  Expects: note_id, has_connections.
+#}
+{% set graph_url = url_for('notes.graph_ego', note_id=note_id) %}
+<a id="graph-btn" class="btn-quiet{% if not has_connections %} disabled{% endif %}"
+   data-href="{{ graph_url }}"
+   data-no-connections-title="No connections yet: this note doesn&rsquo;t link to any note, and no note links to it."
+   {% if has_connections %}href="{{ graph_url }}"{% else %}aria-disabled="true" title="No connections yet: this note doesn&rsquo;t link to any note, and no note links to it."{% endif %}>View graph</a>
+<form method="post" action="{{ url_for('notes.delete_note', note_id=note_id) }}"
+      data-confirm="Move note {{ note_id }} to trash?" id="delete-form">
+  <button type="submit" class="btn-quiet btn-danger">Delete</button>
+</form>

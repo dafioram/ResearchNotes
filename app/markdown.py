@@ -302,3 +302,152 @@ def render_first_line(body: str, existing_ids: set[int] | None = None) -> str:
         if line.strip():
             return render(line, existing_ids)
     return ""
+
+
+_TAG_RE = re.compile(r"<[^>]+>")
+_BLOCK_TAG_RE = re.compile(r"</?(?:p|h[1-6]|li|ul|ol|blockquote|pre|br|hr)\b[^>]*>")
+
+
+def _to_plain(rendered_html: str) -> str:
+    """Rendered HTML -> plain text on one line. Block tags become a space
+    (so separate blocks don't run together); inline tags (<strong>,
+    <code>, <a> ...) vanish without adding space before punctuation."""
+    text = _BLOCK_TAG_RE.sub(" ", rendered_html)
+    text = _TAG_RE.sub("", text)
+    return re.sub(r"\s+", " ", html.unescape(text)).strip()
+
+
+def first_line_text(body: str) -> str:
+    """The first non-blank line as plain text, with markdown syntax
+    removed (e.g. "# Intro to #physics" -> "Intro to #physics"). For places
+    where the snippet sits inside a link, since rendered HTML can hold its
+    own links (labels, [[refs]]) and links can't be nested."""
+    return html.unescape(_TAG_RE.sub("", render_first_line(body))).strip()
+
+
+# ---------------------------------------------------------------------------
+# Backlink context: the passage around each [[ref]] to a given note
+# ---------------------------------------------------------------------------
+
+_SENTINEL = "\x01"  # marks the mention being extracted; survives rendering
+
+
+def _context_units(text: str) -> list[str]:
+    """Split (code-stashed) note text into the same units the renderer
+    treats as blocks: each header line and each list item on its own,
+    consecutive blockquote lines together, and consecutive plain lines
+    together as a paragraph. The context for a mention is the unit it's in
+    -- so a link in one bullet of a list shows that bullet, not the list."""
+    units: list[str] = []
+    group: list[str] = []
+    group_kind = None
+
+    def flush():
+        nonlocal group, group_kind
+        if group:
+            units.append("\n".join(group))
+        group, group_kind = [], None
+
+    for line in text.split("\n"):
+        if BLANK_RE.match(line) or HR_RE.match(line):
+            flush()
+        elif line.strip().startswith("\x00CODEBLOCK") and _PLACEHOLDER_RE.fullmatch(line.strip()):
+            flush()  # a fenced block is its own thing, never prose context
+        elif HEADER_RE.match(line) or UL_RE.match(line) or OL_RE.match(line):
+            flush()
+            units.append(line)
+        else:
+            kind = "quote" if BLOCKQUOTE_RE.match(line) else "para"
+            if kind != group_kind:
+                flush()
+                group_kind = kind
+            group.append(line)
+    flush()
+    return units
+
+
+def _restore_code_source(text: str, stash: _Stash) -> str:
+    """Put stashed code back as its original markdown source, so it can be
+    rendered (and shown as plain text) along with the rest of the unit."""
+
+    def _sub(m: re.Match) -> str:
+        value = stash.items.get(m.group(0))
+        if value is None:
+            return m.group(0)
+        if isinstance(value, tuple):
+            lang, code = value
+            return f"```{lang}\n{code}```"
+        return f"`{value}`"
+
+    return _PLACEHOLDER_RE.sub(_sub, text)
+
+
+def _clip_before(s: str, n: int) -> tuple[str, bool]:
+    if len(s) <= n:
+        return s, False
+    cut = s[-n:]
+    space = cut.find(" ")
+    if 0 <= space < 20:  # start on a word boundary if one is close by
+        cut = cut[space + 1:]
+    return cut, True
+
+
+def _clip_after(s: str, n: int) -> tuple[str, bool]:
+    if len(s) <= n:
+        return s, False
+    cut = s[:n]
+    space = cut.rfind(" ")
+    if space > n - 20:
+        cut = cut[:space]
+    return cut, True
+
+
+def ref_contexts(body: str, target_id: int, width: int = 160) -> list[dict]:
+    """Every mention of [[target_id]] in `body`, each as the plain-text
+    passage around it, trimmed to about `width` characters centered on the
+    link. Returns dicts with `before`, `ref`, `after`, and `clipped_before`
+    / `clipped_after` flags (for drawing an ellipsis).
+
+    Rules:
+    - A mention in the note's first non-blank line is skipped: that line is
+      already shown as the backlink's title.
+    - Mentions inside code are not links, so they're never returned
+      (same rule as extract_note_refs).
+    - Markdown syntax is removed; other [[refs]] and #labels in the passage
+      stay as their literal text.
+    """
+    stash = _Stash()
+    stripped = _strip_code(body, stash)
+    ref_text = f"[[{target_id}]]"
+    out: list[dict] = []
+
+    for unit_index, unit in enumerate(_context_units(stripped)):
+        first_line_end = unit.find("\n") if unit_index == 0 else -1
+        for m in NOTE_REF_RE.finditer(unit):
+            if int(m.group(1)) != target_id:
+                continue
+            if unit_index == 0 and (first_line_end == -1 or m.start() < first_line_end):
+                continue  # it's in the title line
+
+            marked = unit[: m.start()] + _SENTINEL + unit[m.end():]
+            plain = _to_plain(render(_restore_code_source(marked, stash)))
+            if _SENTINEL not in plain:
+                continue
+            before, after = plain.split(_SENTINEL, 1)
+
+            # Split the width around the link, giving any budget one side
+            # doesn't need to the other.
+            half = (width - len(ref_text)) // 2
+            before_budget = half + max(0, half - len(after))
+            after_budget = half + max(0, half - len(before))
+            before, clipped_before = _clip_before(before, before_budget)
+            after, clipped_after = _clip_after(after, after_budget)
+
+            out.append({
+                "before": before,
+                "ref": ref_text,
+                "after": after,
+                "clipped_before": clipped_before,
+                "clipped_after": clipped_after,
+            })
+    return out

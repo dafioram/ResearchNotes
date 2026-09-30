@@ -28,8 +28,6 @@
 
 * { box-sizing: border-box; }
 
-html { -webkit-text-size-adjust: 100%; }
-
 body {
   margin: 0;
   background: var(--paper);
@@ -44,27 +42,109 @@ a:hover { color: var(--ink); }
 
 ::selection { background: var(--label-bg); color: var(--ink); }
 
-.wrap {
-  max-width: 760px;
-  margin: 0 auto;
-  padding: 0 20px 80px;
-}
+/* ---- app shell -----------------------------------------------------
+   Desktop layout. The top bar and content share one centered app width
+   so the wordmark lines up with the sidebar on every page; the graph
+   page lifts the width limit on its content only (.wrap-full), so the
+   nav never shifts sideways between pages.
+   ------------------------------------------------------------------- */
 
-/* ---- top bar ---------------------------------------------------- */
+:root {
+  --app-width: 1240px;
+  --app-gutter: 32px;
+  --sidebar-width: 240px;
+  --reading-width: 760px;
+}
 
 .topbar {
   border-bottom: 1px solid var(--rule);
-  padding: 22px 0 14px;
-  margin-bottom: 22px;
+  margin-bottom: 28px;
 }
 
-.topbar-row {
+.topbar-inner,
+.wrap {
+  max-width: var(--app-width);
+  margin: 0 auto;
+  padding: 0 var(--app-gutter);
+}
+
+.topbar-inner {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
   gap: 16px;
-  flex-wrap: wrap;
+  padding-top: 20px;
+  padding-bottom: 14px;
 }
+
+.wrap { padding-bottom: 80px; }
+.wrap-full { max-width: none; }
+
+.shell {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  gap: 48px;
+  align-items: start;
+}
+
+/* Main column: reading width by default, so note text keeps a
+   comfortable line length and lists sit in the same place on every page.
+   The editor opts into the full remaining width. */
+.main { min-width: 0; max-width: var(--reading-width); }
+.solo > .main { max-width: none; }
+
+.sidebar {
+  position: sticky;
+  top: 20px;
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.sidebar-title {
+  font-family: var(--serif);
+  font-size: 24px;
+  font-weight: 600;
+  line-height: 1.2;
+  margin: 0 0 10px;
+}
+
+.sidebar-text {
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+  margin: 0 0 12px;
+}
+
+.sidebar-count {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--ink-faint);
+  margin: 0;
+}
+
+.sidebar-heading {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  margin: 26px 0 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.sidebar .meta { margin-bottom: 18px; }
+
+.sidebar-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.sidebar-actions > * { text-align: center; }
+.sidebar-actions form { margin: 0; display: flex; }
+.sidebar-actions form button { flex: 1; }
+
+/* ---- top bar ---------------------------------------------------- */
 
 .wordmark {
   font-family: var(--mono);
@@ -81,7 +161,6 @@ a:hover { color: var(--ink); }
 .nav {
   display: flex;
   gap: 4px;
-  flex-wrap: wrap;
   font-family: var(--mono);
   font-size: 13px;
 }
@@ -118,34 +197,52 @@ a:hover { color: var(--ink); }
   margin-bottom: 18px;
 }
 
-/* ---- label cloud --------------------------------------------------- */
+/* ---- search (feed sidebar) ------------------------------------------ */
 
-.label-cloud {
+.search-form {
   display: flex;
-  flex-wrap: wrap;
   gap: 6px;
-  margin-bottom: 26px;
-  padding-bottom: 22px;
-  border-bottom: 1px solid var(--rule);
 }
 
-.label-cloud:empty { display: none; }
-
-.label-chip {
-  font-family: var(--mono);
-  font-size: 12.5px;
-  text-decoration: none;
-  color: var(--label-fg);
-  background: var(--label-bg);
+.search-form input[type="search"] {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--serif);
+  font-size: 15px;
   border: 1px solid var(--rule);
-  padding: 4px 8px;
-  white-space: nowrap;
+  background: var(--card);
+  padding: 7px 10px;
+  color: var(--ink);
 }
 
-.label-chip:hover { background: var(--ink); color: var(--card); border-color: var(--ink); }
-.label-chip.active { background: var(--ink); color: var(--card); border-color: var(--ink); }
-.label-chip .count { color: var(--ink-faint); }
-.label-chip.active .count { color: var(--rule-soft); }
+.search-form input[type="search"]:focus {
+  outline: 2px solid var(--accent-soft);
+  outline-offset: 1px;
+}
+
+.search-form button { flex-shrink: 0; padding: 7px 11px; }
+
+/* ---- label list (feed sidebar) -------------------------------------- */
+
+.label-list { display: flex; flex-direction: column; }
+
+.label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--label-fg);
+  text-decoration: none;
+  padding: 4px 8px;
+  border: 1px solid transparent;
+}
+.label-row .label-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.label-row .count { color: var(--ink-faint); flex-shrink: 0; }
+.label-row:hover { background: var(--card); border-color: var(--rule); color: var(--label-fg); }
+.label-row.active { background: var(--ink); border-color: var(--ink); color: var(--card); }
+.label-row.active .count { color: var(--rule-soft); }
 
 .filter-banner {
   font-family: var(--mono);
@@ -249,15 +346,13 @@ a:hover { color: var(--ink); }
 
 .note-card .full-view { cursor: default; }
 
-.note-body-inline {
+/* Doubled class so this beats the general .note-body rule defined later. */
+.note-body.note-body-inline {
   background: none;
   border: none;
   padding: 6px 0 4px;
-  margin-bottom: 0;
-  border-top: 1px solid var(--rule-soft);
-  margin-top: 4px;
+  margin: 0;
 }
-.note-body-inline:first-child { border-top: none; margin-top: 0; }
 
 .loading-hint {
   font-family: var(--mono);
@@ -276,29 +371,6 @@ a:hover { color: var(--ink); }
 }
 
 /* ---- note render / edit view --------------------------------------- */
-
-.note-toolbar {
-  display: flex;
-  gap: 4px;
-  margin-bottom: 18px;
-  font-family: var(--mono);
-  font-size: 13px;
-}
-
-.note-toolbar a, .note-toolbar button {
-  color: var(--ink-soft);
-  text-decoration: none;
-  border: 1px solid var(--rule);
-  background: var(--card);
-  padding: 6px 10px;
-  cursor: pointer;
-  font-family: var(--mono);
-  font-size: 13px;
-}
-
-.note-toolbar a:hover, .note-toolbar button:hover { border-color: var(--ink); color: var(--ink); }
-.note-toolbar button.danger { color: var(--danger); }
-.note-toolbar button.danger:hover { border-color: var(--danger); background: var(--danger-bg); }
 
 .note-body {
   background: var(--card);
@@ -399,6 +471,122 @@ a:hover { color: var(--ink); }
 
 .section { margin-bottom: 34px; }
 
+/* Sections inside an expanded feed card sit closer to the body. */
+.full-view .section { margin: 18px 0 4px; }
+
+.backlink-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  border-top: 1px solid var(--rule);
+}
+
+.backlink-row {
+  display: block;
+  padding: 9px 12px;
+  background: var(--card);
+  border: 1px solid var(--rule);
+  border-top: none;
+  color: var(--ink);
+  text-decoration: none;
+}
+.backlink-row:hover { background: #fff; color: var(--ink); }
+.backlink-row:hover .backlink-text { text-decoration: underline; text-underline-offset: 3px; }
+
+.backlink-more { font-family: var(--mono); font-size: 12.5px; color: var(--accent); }
+.backlink-more:hover { color: var(--ink); }
+
+.backlink-row .meta-item { flex-shrink: 0; font-family: var(--mono); font-size: 12px; color: var(--ink-soft); }
+/* Fixed-ish id column so snippets line up regardless of id length. */
+.backlink-row .meta-item:first-child { min-width: 6.8em; }
+
+.backlink-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.backlink-text {
+  flex: 1;
+  min-width: 0;
+  margin-left: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The passage around the link: set as a quoted excerpt under the title. */
+.backlink-context {
+  display: block;
+  margin: 6px 0 0 2px;
+  padding-left: 10px;
+  border-left: 2px solid var(--rule);
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+.backlink-context + .backlink-context { margin-top: 4px; }
+.backlink-context-more {
+  border-left-color: transparent;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-faint);
+}
+
+.backlink-ref {
+  background: none;
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 0.86em;
+  font-weight: 600;
+  border-bottom: 1px solid var(--accent-soft);
+}
+
+/* ---- pagination ----------------------------------------------------- */
+
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-family: var(--mono);
+  font-size: 13px;
+  margin: 0 0 8px;
+}
+
+.pager-step {
+  border: 1px solid var(--rule);
+  background: var(--card);
+  color: var(--ink-soft);
+  padding: 6px 12px;
+  text-decoration: none;
+}
+a.pager-step:hover { border-color: var(--ink); color: var(--ink); }
+.pager-step.disabled { color: var(--ink-faint); border-color: var(--rule-soft); background: none; }
+
+.pager-pages { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; }
+
+.pager-num {
+  min-width: 32px;
+  text-align: center;
+  padding: 5px 7px;
+  border: 1px solid transparent;
+  color: var(--ink-soft);
+  text-decoration: none;
+}
+a.pager-num:hover { border-color: var(--rule); background: var(--card); color: var(--ink); }
+.pager-num.current { border-color: var(--ink); background: var(--card); color: var(--ink); font-weight: 600; }
+
+.pager-gap { padding: 0 4px; color: var(--ink-faint); }
+
+.pager-summary {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-faint);
+  margin: 0 0 30px;
+}
+
 /* ---- edit form ------------------------------------------------------ */
 
 .field { margin-bottom: 18px; }
@@ -421,8 +609,12 @@ input[type="date"], input[type="text"] {
 }
 
 textarea.editor {
+  display: block;
   width: 100%;
-  min-height: 46vh;
+  /* Fill the window below the top bar; the page scrolls only for
+     attachments underneath. */
+  height: calc(100vh - 190px);
+  min-height: 420px;
   font-family: var(--mono);
   font-size: 14.5px;
   line-height: 1.55;
@@ -447,7 +639,10 @@ textarea.editor:focus, input:focus, button:focus, a:focus {
   padding: 9px 16px;
   cursor: pointer;
 }
-.btn:hover { background: var(--accent); border-color: var(--accent); }
+.btn:hover { background: var(--accent); border-color: var(--accent); color: var(--card); }
+a.btn, a.btn-quiet { display: inline-block; text-decoration: none; }
+.btn-danger { color: var(--danger); }
+.btn-danger:hover { color: var(--danger); border-color: var(--danger); background: var(--danger-bg); }
 
 .btn-quiet {
   font-family: var(--mono);
@@ -478,6 +673,25 @@ textarea.editor:focus, input:focus, button:focus, a:focus {
   cursor: pointer;
 }
 .label-picker button:hover { background: var(--ink); color: var(--card); border-color: var(--ink); }
+.label-picker button .count { opacity: 0.6; }
+
+.shortcut-hint {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-faint);
+  margin: 10px 0 0;
+  text-align: center;
+}
+
+kbd {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  border: 1px solid var(--rule);
+  border-bottom-width: 2px;
+  background: var(--card);
+  padding: 0 5px;
+  color: var(--ink-soft);
+}
 
 /* ---- attachments ------------------------------------------------- */
 
@@ -508,56 +722,56 @@ textarea.editor:focus, input:focus, button:focus, a:focus {
 }
 .attachment-row button:hover { border-color: var(--danger); background: var(--danger-bg); }
 
-.attach-search-results {
-  border: 1px solid var(--rule);
-  border-top: none;
-  background: var(--card);
-  max-height: 220px;
-  overflow-y: auto;
-}
-.attach-search-results:empty { display: none; }
-.attach-search-results button {
-  display: block;
-  width: 100%;
-  text-align: left;
-  font-family: var(--mono);
-  font-size: 13px;
-  background: none;
-  border: none;
-  border-top: 1px solid var(--rule-soft);
-  padding: 7px 10px;
-  cursor: pointer;
-}
-.attach-search-results button:hover { background: var(--paper); }
-
 /* ---- graph ---------------------------------------------------------- */
 
 .graph-toolbar {
   display: flex;
-  gap: 10px;
+  gap: 14px;
   align-items: center;
+  flex-wrap: wrap;
   font-family: var(--mono);
   font-size: 13px;
   margin-bottom: 12px;
   color: var(--ink-soft);
 }
 
-#graph-canvas {
-  width: 100%;
-  height: 70vh;
-  border: 1px solid var(--rule);
-  background: var(--card);
-}
-
 .graph-legend {
   display: flex;
   gap: 18px;
-  font-family: var(--mono);
+  margin-left: auto;
   font-size: 12px;
-  color: var(--ink-soft);
-  margin-top: 10px;
 }
-.legend-swatch { display: inline-block; width: 10px; height: 10px; margin-right: 5px; vertical-align: middle; }
+
+/* Swatches match how the graph actually draws each thing. */
+.legend-swatch { display: inline-block; width: 12px; height: 10px; margin-right: 6px; vertical-align: middle; background: var(--card); }
+.legend-note { border: 1.5px solid var(--accent); }
+.legend-ghost { border: 1.5px dashed var(--danger); }
+.legend-broken { width: 18px; height: 0; border-top: 2px dashed var(--danger); background: none; }
+
+.graph-hint { font-size: 12px; color: var(--ink-faint); }
+
+.graph-tip {
+  position: fixed;
+  z-index: 10;
+  pointer-events: none;
+  max-width: 320px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  background: var(--ink);
+  color: var(--card);
+  padding: 5px 9px;
+}
+.graph-tip[hidden] { display: none; }
+.graph-tip.ghost { background: var(--danger); }
+
+/* The graph gets the whole window below the top bar. */
+#graph-canvas {
+  width: 100%;
+  height: calc(100vh - 150px);
+  min-height: 480px;
+  border: 1px solid var(--rule);
+  background: var(--card);
+}
 
 /* ---- trash ------------------------------------------------------- */
 
@@ -575,15 +789,183 @@ textarea.editor:focus, input:focus, button:focus, a:focus {
 .trash-list { border-top: 1px solid var(--rule); margin-bottom: 24px; }
 .trash-row form { margin: 0; }
 
-footer.hint {
+.hint {
   font-family: var(--mono);
   font-size: 12px;
   color: var(--ink-faint);
   margin-top: 10px;
 }
 
-@media (max-width: 560px) {
-  body { font-size: 16px; }
-  .note-body { padding: 20px 18px; }
-  .wrap { padding: 0 14px 60px; }
+
+/* ---- attachment upload status (edit page) --------------------------- */
+
+.attachment-status {
+  margin-left: 12px;
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--ink-soft);
+}
+.attachment-status.error { color: var(--danger); }
+.attachment-row button:disabled,
+#attachment-upload button:disabled { opacity: 0.5; cursor: default; }
+
+/* ---- history -------------------------------------------------------- */
+
+.label-row.plain { color: var(--ink-soft); }
+.label-row.plain:hover { color: var(--ink); }
+.label-row.plain.active { color: var(--card); }
+
+.history-day {
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  margin: 0 0 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--rule);
+}
+.history-list + .history-day { margin-top: 28px; }
+
+.history-list { list-style: none; padding: 0; margin: 0; }
+
+.history-item {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.history-item:last-child { border-bottom: none; }
+
+.history-time {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--ink-faint);
+  padding-top: 2px;
+  text-align: right;
+}
+
+.history-line { margin: 0; line-height: 1.5; }
+
+.history-verb { font-weight: 600; margin-right: 2px; }
+.kind-deleted .history-verb { color: var(--danger); }
+
+.history-file {
+  font-family: var(--mono);
+  font-size: 0.86em;
+  background: var(--card);
+  border: 1px solid var(--rule);
+  padding: 0 5px;
+}
+
+.history-note { color: var(--ink); text-decoration: none; }
+a.history-note:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; }
+.history-note.trashed { color: var(--ink-faint); }
+.history-no { font-family: var(--mono); font-size: 0.82em; color: var(--ink-soft); margin-right: 3px; }
+
+.history-flag {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--danger);
+  margin-left: 6px;
+}
+
+.history-changes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 5px 0 0;
+}
+.history-changes .change {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-soft);
+  border: 1px solid var(--rule);
+  background: var(--card);
+  padding: 1px 7px;
+}
+.history-list + .pager { margin-top: 24px; }
+
+/* ---- note page: View / Edit ----------------------------------------- */
+
+/* The body carries mode-view or mode-edit; each element for one mode is
+   marked .view-only or .edit-only. .not-new needs a saved note. */
+.mode-view .edit-only,
+.mode-edit .view-only,
+.is-new .not-new { display: none; }
+
+/* The editor gets the full main column; View keeps the reading width. */
+.mode-edit .main { max-width: none; }
+
+/* A two-position switch with a sliding thumb. The thumb's position comes
+   from the body's mode class, so it moves whenever the mode changes --
+   by clicking, by Done, or by Cancel. */
+.mode-switch {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border: 1px solid var(--ink);
+  background: var(--card);
+  margin: 4px 0 18px;
+  font-family: var(--mono);
+  font-size: 13px;
+}
+.mode-switch::before {
+  content: "";
+  position: absolute;
+  top: 0; bottom: 0; left: 0;
+  width: 50%;
+  background: var(--ink);
+  transition: transform 0.18s ease;
+}
+.mode-edit .mode-switch::before { transform: translateX(100%); }
+
+.mode-option {
+  position: relative;          /* above the thumb */
+  text-align: center;
+  padding: 6px 0;
+  cursor: pointer;
+  color: var(--ink-soft);
+  user-select: none;
+  transition: color 0.18s ease;   /* in step with the sliding thumb */
+}
+.mode-option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+.mode-view .mode-option:first-child,
+.mode-edit .mode-option:last-child { color: var(--card); }
+.mode-option:has(input:focus-visible) { outline: 2px solid var(--accent-soft); outline-offset: 2px; }
+
+.save-status {
+  min-height: 1.4em;
+  margin: 10px 0 0;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-faint);
+  text-align: center;
+}
+.save-status.dirty { color: var(--label-fg); }
+.save-status.error { color: var(--danger); text-align: left; }
+
+.sidebar-common { margin-top: 22px; }
+.sidebar-common:empty { display: none; }
+
+/* "View graph" for a note with no links: visibly unavailable, with the
+   reason in its hover title. */
+.btn-quiet.disabled,
+.btn-quiet.disabled:hover {
+  color: var(--ink-faint);
+  border-color: var(--rule-soft);
+  background: none;
+  cursor: not-allowed;
+}
+
+/* ---- feed: landing on a just-created note ---------------------------- */
+
+.note-card.just-added { animation: just-added 2s ease-out; }
+@keyframes just-added {
+  0%, 35% { background: var(--label-bg); box-shadow: inset 4px 0 0 var(--accent); }
+  100%    { background: var(--card); box-shadow: inset 4px 0 0 transparent; }
 }

@@ -1,38 +1,52 @@
 {% extends "base.html" %}
-{% block title %}{% if center %}Graph around note {{ center }}{% else %}Graph{% endif %} &middot; Research Notes{% endblock %}
+{#
+  The graph around one note: the notes within N links of it, in either
+  direction. Reached only from a note's page ("View graph"); there is no
+  whole-collection graph.
+#}
+{% block title %}Graph around No. {{ center }} &middot; Research Notes{% endblock %}
+{% block wrap_class %}wrap-full{% endblock %}
+
 {% block content %}
 
   <div class="graph-toolbar">
-    {% if center %}
-      <span>Local graph around <strong>No. {{ center }}</strong></span>
-      <a href="{{ url_for('notes.graph_global') }}">View global graph</a>
-      <a href="{{ url_for('notes.view_note', note_id=center) }}">Back to note</a>
-      <label style="margin-left:auto;">
+    <span>Graph around <strong>No. {{ center }}</strong> {{ title }}</span>
+    <a href="{{ url_for('notes.view_note', note_id=center) }}">Back to note</a>
+    {% if has_connections %}
+      <label class="graph-hops">
         hops
         <select id="hops-select">
-          {% for h in [1, 2, 3] %}
+          {% for h in range(1, 6) %}
             <option value="{{ h }}" {% if h == hops %}selected{% endif %}>{{ h }}</option>
           {% endfor %}
         </select>
       </label>
-    {% else %}
-      <span>Global graph &mdash; every note with at least one link</span>
+      <span class="graph-hint">Scroll to zoom, drag to pan, hover for titles</span>
+      <span class="graph-legend">
+        <span><span class="legend-swatch legend-note"></span>note</span>
+        <span><span class="legend-swatch legend-ghost"></span>missing note</span>
+        <span><span class="legend-swatch legend-broken"></span>link to a missing note</span>
+      </span>
     {% endif %}
   </div>
 
-  <div id="graph-canvas"
-       data-endpoint="{% if center %}{{ url_for('notes.api_graph_ego', note_id=center, hops=hops) }}{% else %}{{ url_for('notes.api_graph_global') }}{% endif %}"
-       data-center="{{ center or '' }}"></div>
-
-  <div class="graph-legend">
-    <span><span class="legend-swatch" style="background:#26415c;"></span>note</span>
-    <span><span class="legend-swatch" style="background:#fbfaf6;border:1px dashed #a83b2d;"></span>missing / broken reference</span>
-    <span><span class="legend-swatch" style="background:#a83b2d;"></span>link to a missing note</span>
-  </div>
+  {% if has_connections %}
+    <div id="graph-canvas"
+         data-endpoint="{{ url_for('notes.api_graph_ego', note_id=center, hops=hops) }}"
+         data-center="{{ center }}"></div>
+  {% else %}
+    <div class="empty-state">
+      No. {{ center }} has no connections yet: it doesn&rsquo;t link to any note, and no note links to it.
+      Add a <code>[[note-number]]</code> link to give it a graph.
+    </div>
+  {% endif %}
 
 {% endblock %}
 
 {% block scripts %}
-<script src="https://unpkg.com/cytoscape@3.31.0/dist/cytoscape.min.js"></script>
+{% if has_connections %}
+{# Bundled locally (MIT) so the graph works offline. #}
+<script src="{{ url_for('static', filename='vendor/cytoscape-3.31.0.min.js') }}"></script>
 <script src="{{ url_for('static', filename='graph.js') }}"></script>
+{% endif %}
 {% endblock %}

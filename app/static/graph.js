@@ -53,7 +53,10 @@
               label: "data(label)",
               color: "#20241f",
               "font-family": "IBM Plex Mono, monospace",
-              "font-size": 10,
+              "font-size": 12,
+              // Labels too small to read are hidden rather than drawn as
+              // smudges; they appear as you zoom in (hover shows them too).
+              "min-zoomed-font-size": 8,
               "text-valign": "center",
               "text-halign": "center",
               "text-wrap": "wrap",
@@ -98,10 +101,30 @@
             },
           },
         ],
-        layout: { name: "cose", animate: false, padding: 30 },
+        // Force-directed layout tuned for labeled boxes rather than dots:
+        // node size includes the label, and repulsion/edge length are large
+        // enough that boxes don't stack on top of each other.
+        layout: {
+          name: "cose",
+          animate: false,
+          padding: 40,
+          nodeDimensionsIncludeLabels: true,
+          idealEdgeLength: function () { return 120; },
+          nodeRepulsion: function () { return 900000; },
+          nodeOverlap: 40,
+          gravity: 0.3,
+          componentSpacing: 120,
+          numIter: 2500,
+        },
         minZoom: 0.2,
         maxZoom: 3,
       });
+
+      // A small graph shouldn't be blown up to fill the window.
+      if (cy.zoom() > 1.3) {
+        cy.zoom(1.3);
+        cy.center();
+      }
 
       cy.on("tap", "node", function (evt) {
         var d = evt.target.data();
@@ -110,12 +133,35 @@
         window.location.href = "/notes/" + id;
       });
 
-      cy.on("mouseover", "node[!ghost]", function (evt) {
-        container.style.cursor = "pointer";
+      // Hover tooltip with the node's full label, so notes can be
+      // identified from the zoomed-out overview where labels are hidden.
+      var tip = document.createElement("div");
+      tip.className = "graph-tip";
+      tip.hidden = true;
+      document.body.appendChild(tip);
+
+      function placeTip(evt) {
+        if (!evt.originalEvent) return;
+        tip.style.left = evt.originalEvent.clientX + 14 + "px";
+        tip.style.top = evt.originalEvent.clientY + 14 + "px";
+      }
+
+      cy.on("mouseover", "node", function (evt) {
+        var d = evt.target.data();
+        container.style.cursor = d.ghost ? "default" : "pointer";
+        tip.textContent = d.label;
+        tip.classList.toggle("ghost", !!d.ghost);
+        placeTip(evt); // position before showing, not only on the next move
+        tip.hidden = false;
+      });
+      cy.on("mousemove", function (evt) {
+        if (!tip.hidden) placeTip(evt);
       });
       cy.on("mouseout", "node", function () {
         container.style.cursor = "default";
+        tip.hidden = true;
       });
+      cy.on("zoom pan", function () { tip.hidden = true; });
 
       if (elements.length === 0) {
         var empty = document.createElement("div");

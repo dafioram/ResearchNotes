@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{#
+  One page per note with two modes, View and Edit, flipped by the switch in
+  the sidebar without leaving the page (app.js). /notes/N opens in View,
+  /notes/N/edit in Edit; flipping updates the address bar in place.
+  /notes/new is this page in Edit mode for a note that doesn't exist yet:
+  its first save creates it and the page carries on as that note.
+  Everything for one mode is marked .view-only or .edit-only; the body
+  class (mode-view / mode-edit) decides which shows. .not-new hides
+  things that need a saved note while it's still new.
+#}
+{% set is_new = not (note and note['id']) %}
+{% block title %}{% if is_new %}New note{% else %}No. {{ note['id'] }}{% endif %} &middot; Research Notes{% endblock %}
+{% block body_class %}mode-{{ mode }}{% if is_new %} is-new{% endif %}{% endblock %}
+
+{% block sidebar %}
+  <h1 class="sidebar-title" id="note-title">{% if is_new %}New note{% else %}No. {{ note['id'] }}{% endif %}</h1>
+
+  <div class="mode-switch not-new" role="radiogroup" aria-label="Mode">
+    <label class="mode-option"><input type="radio" name="mode" value="view" {% if mode == 'view' %}checked{% endif %}><span>View</span></label>
+    <label class="mode-option"><input type="radio" name="mode" value="edit" {% if mode == 'edit' %}checked{% endif %}><span>Edit</span></label>
+  </div>
+
+  <div class="view-only">
+    <div class="meta">
+      <span class="meta-item" id="meta-date">{% if not is_new %}{{ note['sort_date'] }}{% endif %}</span>
+      <span class="meta-item" id="meta-lines">{% if not is_new %}{{ note['line_count'] }} line{{ 's' if note['line_count'] != 1 else '' }}{% endif %}</span>
+    </div>
+  </div>
+
+  <div class="edit-only">
+    <div class="field">
+      <label for="sort_date">Sort date</label>
+      <input type="date" id="sort_date" name="sort_date" form="note-form"
+             value="{{ sort_date }}" required>
+    </div>
+
+    <div class="sidebar-actions">
+      <button type="submit" class="btn" form="note-form">Save</button>
+      <button type="button" class="btn-quiet" id="done-btn">Done</button>
+      <button type="button" class="btn-quiet" id="cancel-btn">Cancel</button>
+    </div>
+    <p class="save-status" id="save-status" role="status" aria-live="polite"></p>
+    <p class="shortcut-hint"><kbd data-mod-key>Ctrl</kbd>+<kbd>S</kbd> saves</p>
+  </div>
+
+  <div class="sidebar-actions sidebar-common" id="common-actions">
+    {% if not is_new %}
+      {% set note_id = note['id'] %}
+      {% include "_note_common_actions.html" %}
+    {% endif %}
+  </div>
+
+  {% if labels %}
+  <div class="edit-only">
+    <p class="sidebar-heading">Labels &mdash; click to insert</p>
+    <div class="label-picker">
+      {% for l in labels %}
+        <button type="button" data-label="{{ l['name'] }}">#{{ l['name'] }} <span class="count">{{ l['count'] }}</span></button>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+  <div id="note-page" hidden
+       data-note-id="{{ '' if is_new else note['id'] }}"
+       data-started-new="{{ 'true' if started_new else 'false' }}"
+       data-feed-url="{{ feed_url }}"></div>
+
+  <div class="view-only" id="view-pane">
+    {% if not is_new %}{% include "_note_view_pane.html" %}{% endif %}
+  </div>
+
+  <div class="edit-only">
+    <form id="note-form" method="post"
+          action="{% if is_new %}{{ url_for('notes.create_note') }}{% else %}{{ url_for('notes.update_note', note_id=note['id']) }}{% endif %}"></form>
+
+    <div class="field">
+      <label for="body">Body &mdash; raw markdown subset. Use <code>#label</code> for tags and <code>[[note-number]]</code> to link other notes.</label>
+      <textarea class="editor" id="body" name="body" form="note-form" placeholder="# Title&#10;&#10;Write your note here...">{{ body }}</textarea>
+    </div>
+
+    <div id="attachments-slot">
+      {% if is_new %}
+        <p class="hint">Save the note once to attach files to it.</p>
+      {% else %}
+        {% set note_id = note['id'] %}
+        {% include "_attachments_section.html" %}
+      {% endif %}
+    </div>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+{% endblock %}

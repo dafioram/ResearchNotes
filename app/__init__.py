@@ -6,6 +6,14 @@ from dotenv import load_dotenv
 from flask import Flask
 
 
+def _positive_int(raw, default: int) -> int:
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return default
+    return value if value > 0 else default
+
+
 def create_app(test_config: dict | None = None) -> Flask:
     load_dotenv()
 
@@ -19,6 +27,7 @@ def create_app(test_config: dict | None = None) -> Flask:
         DATABASE_PATH=str(data_dir / "notes.db"),
         UPLOAD_DIR=str(data_dir / "uploads"),
         MAX_CONTENT_LENGTH=50 * 1024 * 1024,  # 50 MB per upload
+        PAGE_SIZE=_positive_int(os.environ.get("PAGE_SIZE"), 50),
     )
 
     if test_config:
@@ -31,5 +40,15 @@ def create_app(test_config: dict | None = None) -> Flask:
 
     from . import routes
     app.register_blueprint(routes.bp)
+
+    @app.after_request
+    def never_cache_pages(response):
+        # Pages must never come back stale from the browser cache (e.g. the
+        # feed after pressing Back from an edited note): back/forward
+        # navigation may reuse a cached page unless it's marked no-store.
+        # Static files (CSS, JS) are unaffected.
+        if response.mimetype == "text/html":
+            response.headers["Cache-Control"] = "no-store"
+        return response
 
     return app

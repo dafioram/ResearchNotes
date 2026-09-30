@@ -1,0 +1,776 @@
+# Research Notes — Design Spec
+
+Status: reflects the app as built. This is the running design record —
+when a behavior changes, this file changes with it in the same commit.
+
+## 1. Purpose
+
+A single-user, no-auth, self-hosted note-taking app for atomic research
+notes, built around the [Zettelkasten method](https://en.wikipedia.org/wiki/Zettelkasten):
+short, linkable, taggable notes that accumulate into a web of ideas,
+rather than long-form documents organized into folders.
+
+Single-user and no-auth are deliberate, not a deferred feature: the app
+assumes localhost or a trusted network, and nothing in the design should
+add friction in service of multi-user support.
+
+**Desktop is the target platform.** The app is designed for a desktop
+browser window (roughly 1280px wide and up) with a mouse and keyboard.
+Phones and narrow windows are not a goal: there is no responsive or
+touch layout, and no design decision should trade away anything on
+desktop to accommodate one. It works offline except for the web fonts,
+which fall back to local serif/monospace fonts (§2).
+
+## 2. Stack
+
+- **Flask**, not FastAPI. This is a page-rendering app (feed, forms,
+  redirects, server-rendered filtering) — Flask + Jinja2 fits directly.
+  FastAPI's strengths (async I/O, pydantic validation, auto-generated
+  OpenAPI) don't pay off for a single-user app with no separate JSON API
+  consumer.
+- **SQLite**, one file, via the Python standard library's `sqlite3`
+  (WAL journal mode). No ORM.
+- **Vanilla JS**, no framework, no bundler. A handful of small
+  page-specific scripts (`feed.js`, `graph.js`, `app.js`) loaded as
+  plain `<script>` tags.
+- **Cytoscape.js** for the two graph views — the one place a
+  third-party library earns its place. Bundled in `app/static/vendor/`
+  (MIT licensed, license header kept in the file) rather than loaded
+  from a CDN, so the graph works without a network connection. Upgrading
+  means replacing that file and the version in its filename.
+- **Web fonts** (Source Serif 4, IBM Plex Mono) come from Google Fonts;
+  offline, the CSS falls back to Georgia and the system monospace font,
+  so nothing breaks, it just looks slightly different.
+- **No third-party markdown library.** The markdown renderer is
+  hand-rolled (§5) because the spec calls for a deliberately restricted
+  subset with two note-specific extensions (labels, note references)
+  that don't exist in any off-the-shelf parser.
+
+## 3. Data model
+
+```
+notes(id PK, body, sort_date, created_at, updated_at, deleted_at)
+note_labels(note_id, name)                           -- derived, resynced on save
+note_links(from_note_id, to_note_id)                 -- derived, resynced on save
+attachments(id PK, hash UNIQUE, filename, extension, mime_type, size, created_at)
+note_attachments(note_id, attachment_id)             -- many-to-many
+notes_fts(body)                                       -- FTS5 virtual table, external content
+activity(id PK, kind, note_id, created_at, updated_at, save_count,
+         touches_links, detail JSON, base_body, base_sort_date)   -- History, §11
+```
+
+`note_labels` and `note_links` are **not** the source of truth — they're
+a denormalized index over `notes.body`, rebuilt every time a note is
+saved (§6.3). The source of truth for labels and note-references is
+always the literal text of the note.
+
+There is deliberately **no separate `labels` table**. A label has no
+properties of its own — no description, color or alias — only a name,
+and it exists exactly when some note's text uses it. So `note_labels`
+stores the name directly, like `note_links` stores note ids: counts are
+a `GROUP BY name`, filtering is `WHERE name = ?`, and there can never be
+a leftover label that no note uses. (Earlier versions had
+`labels(id, name)` plus `note_labels(note_id, label_id)`; the extra table
+cost an id lookup per label on every save, a cleanup query to delete
+unused labels, and an extra join in every label query, for no benefit.
+Revisit only if labels gain properties of their own; renaming a label
+wouldn't need one either, since that means rewriting note text.)
+
+`note_links.to_note_id` has no foreign key constraint, because it may
+point at a note number that doesn't exist (yet, or ever) — that's a
+valid, expected state (a "ghost" reference, §6.2), not a data error.
+
+Soft delete is a nullable `deleted_at` timestamp on `notes`, not a
+separate table or a boolean. Every query that lists notes for normal use
+filters `WHERE deleted_at IS NULL`; the Trash view is the one place that
+filters the opposite way.
+
+## 4. Notes: feed, view, edit
+
+- Each note has a unique auto-incrementing integer **id**, a
+  user-set **sort date** (date-only, no time component — set explicitly
+  by the person when creating or editing a note, never derived from
+  `created_at`), and raw markdown-subset **body** text.
+- **Line count** = number of non-blank lines in the raw body
+  (`sum(1 for line in body.splitlines() if line.strip())`). Blank lines
+  are not counted; an all-blank or empty body counts as 0.
+- The **feed** (`/`) lists all non-deleted notes ordered by sort date
+  descending, most recent first, ties broken by id descending, one page
+  at a time (§4.2). Each entry is a card showing a stamped meta row
+  (`No. <id>` / sort date / line count, plus `N files` when it has
+  attachments, §9.4, and `N backlinks` when other notes reference it,
+  §6.5 — each badge omitted entirely when its count is zero) and a
+  **snippet**: the rendered markdown of just the note's first non-blank
+  line (typically a header, since that's what a header is for).
+- Clicking a card **expands it in place** to the full rendered note,
+  its attachments, and its backlinks (fetched once from
+  `/notes/<id>/fragment` — a bare HTML fragment, no page chrome — then
+  cached client-side) rather than navigating away. Clicking again
+  collapses it. A disclosure chevron gives the same toggle with
+  `aria-expanded` state for keyboard/AT users.
+- Each card also has an **Edit** button, which opens the note's page
+  straight in Edit mode (§4.3). There is no separate "view" link on a
+  card: expanding it already shows the rendered note, and the `No. <id>`
+  stamp is plain text. From Edit, the switch goes to View if wanted.
+- Each note has **one page** with a **View / Edit switch** — see §4.3
+  for everything about viewing, editing and saving.
+- **Soft delete**: a Delete button sets `deleted_at`; the note
+  disappears from the feed, search, orphans, attachments tab, and label
+  counts, and its page returns 404. While it's deleted, `[[id]]`
+  references to it render as ghosts (§6.2) and it appears as a ghost
+  node in the graph (§10) — the same as a note that never existed. Its
+  id is never reused, and the referencing notes' `note_links` rows are
+  untouched, so restoring it brings every link back exactly as it was.
+  A **Trash** view (`/trash`) lists deleted notes with a Restore action
+  that clears `deleted_at`.
+
+The Orphans view (§8) and Attachments tab (§9.4) reuse the exact same
+card component as the feed (a shared Jinja macro, `_macros.html`), so
+expand/collapse, Edit, the badges, and pagination behave
+identically everywhere a list of notes is shown. Neither of those two
+views is itself searchable or label-filterable — only the main feed is.
+
+### 4.1 Layout
+
+A two-column desktop layout under a full-width top bar:
+
+- **Left sidebar** (240px, sticky — it stays in view while the page
+  scrolls, and scrolls on its own if it's taller than the window). Its
+  contents depend on the page:
+  - Feed: the search box and the label list (§6.4).
+  - Orphans / Attachments / Trash: the page name, what it lists, and
+    how many notes it contains.
+  - A note's page: its number and the View / Edit switch; then in View
+    its date and line count, in Edit the date picker, Save / Done /
+    Cancel, save status, shortcut hint and labels; View graph and Delete
+    in both (§4.3).
+- **Main column**: capped at a 760px reading width (about 75
+  characters of note text per line), left-aligned next to the sidebar.
+  Because every list page uses the same grid, switching between Feed,
+  Orphans and Attachments never moves the list sideways. Edit mode lifts
+  the cap to use the full remaining width.
+- **Graph**: no sidebar; the graph takes the full window width and
+  height below the top bar (§10).
+- The top bar and the content share one centered app width (1240px), so
+  the wordmark lines up with the sidebar and the nav never shifts
+  between pages — including the graph, whose content alone breaks out to
+  full width.
+
+### 4.2 Pagination
+
+The feed, Orphans, and Attachments tab are paginated, **not** infinite-
+scroll: `PAGE_SIZE` notes per page (default 50, configurable, §13),
+selected with `?page=N`. Page 1 has a clean URL (no `page` param).
+
+- Chosen over infinite scroll because each page is a real URL: the back
+  button returns to the same place after opening a note, a position can
+  be bookmarked, the DOM never grows without bound, and it stays
+  server-rendered like everything else.
+- Chosen over "load everything" (the original behavior) because every
+  card renders markdown for its snippet, so an unpaginated feed's cost
+  and page weight grow linearly with note count.
+- Implemented with `LIMIT`/`OFFSET` plus a `COUNT(*)` over the same
+  query. Keyset/cursor pagination would scale further but can't jump to
+  an arbitrary page number; offset is plenty for one person's notes.
+- Navigation: Previous / Next plus page numbers — always the first and
+  last page, and two either side of the current one, with `…` for gaps
+  (a gap of exactly one page is filled in instead). A "Showing 101–150
+  of 320" summary sits below. Nothing is rendered when everything fits
+  on one page.
+- Page links carry the current search text and label filter, so paging
+  works inside filtered results.
+- Out-of-range pages (`?page=99` when there are 7) redirect to the last
+  page; non-numeric, zero, or negative values fall back to page 1.
+- Search results are ranked over the **whole** result set first and
+  then sliced, so the promoted note-number matches (§7) always lead
+  page 1 rather than being scattered across pages.
+
+
+### 4.3 The note page: View and Edit
+
+Each note has one page with two modes, switched by a sliding **View /
+Edit** switch at the top of the sidebar. Switching never reloads or
+leaves the page.
+
+- **Addresses:** `/notes/<id>` opens in View, `/notes/<id>/edit` in Edit.
+  Both serve the same page (`note.html`); flipping the switch replaces
+  the address in place (`history.replaceState`), so refreshing keeps the
+  mode and Back doesn't step through every flip.
+- **Which mode links open in:** every link *to* a note — `[[links]]` in
+  note text, backlinks, History entries, graph nodes, Random, "see all on
+  the note's page" — opens in **View**. Only the feed cards' Edit button
+  and New note open in **Edit**.
+- **View** shows the rendered note, its attachments and its backlinks
+  (§6.5). Its sidebar has the sort date and line count.
+- **Edit** is the raw markdown in a plain `<textarea>` — intentionally
+  not a rich editor or a live-preview split pane — using the full width
+  of the main column and the height of the window. Its sidebar has the
+  sort date picker, Save / Done / Cancel, a save status line, the Ctrl+S
+  hint, and every label in use as a chip that inserts `#label ` at the
+  cursor. The attachment editor is under the text (§9.3). Opening a page
+  in Edit puts the cursor in the editor.
+- **View graph** and **Delete** are in the sidebar in both modes. View
+  graph is greyed out, explaining "No connections yet" on hover, when the
+  note has no links in or out (§10).
+
+**Saving never leaves the page.**
+
+| Action | What happens |
+|---|---|
+| **Save** or **Ctrl+S** (⌘S on a Mac) | Saves and stays in Edit, as often as you like. |
+| **Done** | Saves, then switches to View. |
+| Flipping the switch to **View** | Same as Done: saves (if anything changed), then shows View. |
+| **Cancel** | Discards unsaved changes — asking first if there are any — and switches to View. |
+
+- A save sends the form with `fetch` and an `X-Requested-With: fetch`
+  header; the server answers with JSON: the freshly rendered View pane,
+  the sort date and line count, whether the note now has connections
+  (so View graph can enable or grey out without a reload), and the time
+  saved. Without that header the same routes redirect as a plain form
+  would.
+- The status line under the buttons reads "Unsaved changes" as soon as
+  the text or date differs from what was last saved, "Saved 10:42 AM"
+  after a save, or the error if a save failed.
+- A rejected save (e.g. the sort date was cleared) changes nothing and
+  keeps you in Edit — including when it was triggered by Done or the
+  switch — with the reason in the status line; the browser's own
+  "please fill in" bubble shows for a missing date.
+- Ctrl+S never opens the browser's "Save page as", ignores repeat
+  presses while a save is in flight, and does nothing in View. It's the
+  app's only keyboard shortcut, by choice.
+- **Leaving with unsaved changes** (a nav link, Back, closing the tab)
+  shows the browser's "leave page?" warning. Delete asks its own
+  confirmation instead, so it never shows both.
+- Frequent saves don't flood History: saves within 15 minutes merge into
+  one entry (§11.2).
+
+**New notes** (`/notes/new`) open in Edit with no switch yet, dated
+today (local time).
+
+- The **first Save** (or Ctrl+S) creates the note and keeps you editing.
+  The page becomes that note's page in place: its number appears, the
+  address becomes `/notes/<id>/edit`, the switch appears, and the
+  attachment editor, View graph and Delete arrive in the same JSON reply
+  — so files can be attached right away.
+- **Done** saves and returns to the **feed, landing on the new note**: the
+  feed opens on the page the note falls on in the default order (its
+  sort date is yours to set, so it may not be page 1; any search or label
+  filter is dropped so it's sure to be listed), scrolls it to the middle
+  of the window, and briefly highlights it (≈2 s fade). The `focus`
+  parameter that asks for this is removed from the address afterwards,
+  so a refresh doesn't repeat it. If the page is too short to scroll, the
+  note just stays where it is.
+- **Cancel** returns to the feed. If the note was never saved, nothing is
+  created.
+
+**Coming back to lists.** Pages are sent with `Cache-Control: no-store`,
+and the list pages reload if the browser restores them from its
+back/forward cache — so pressing Back to the feed after editing always
+shows the current titles and counts, at the scroll position you left.
+No highlight in that case.
+
+## 5. Markdown subset
+
+Hand-rolled, not CommonMark. Supported:
+
+| Syntax | Renders as |
+|---|---|
+| `# ` … `###### ` (space required) | `<h1>`–`<h6>` |
+| `**bold**` / `__bold__` | `<strong>` |
+| `*italic*` / `_italic_` | `<em>` |
+| `~~strike~~` | `<del>` |
+| `` `code` `` | `<code>` |
+| ` ```lang␊code␊``` ` | `<pre><code class="language-lang">` |
+| `[text](url)` | `<a>` |
+| `- item` / `* item` | `<ul><li>` |
+| `1. item` | `<ol><li>` |
+| `> quote` | `<blockquote>` |
+| `---` / `***` / `___` | `<hr>` |
+| blank-line-separated paragraphs; single `\n` | `<p>`; `<br>` |
+
+Deliberately **not** supported: image syntax (`![]()` — attachments are
+a separate, non-inline feature, §9), tables, raw HTML passthrough
+(everything is HTML-escaped first, so the table above is genuinely the
+entire vocabulary available — there is no way to smuggle a `<script>`
+tag through a note body).
+
+Parsing order, in the actual renderer: fenced code blocks and inline
+code spans are extracted into placeholders **before** anything else runs
+(so a `#` inside a code block is never mistaken for a label, and a
+`[[42]]` inside inline code is never linkified); block-level structure
+(headers/lists/quotes/hr) is parsed next; inline formatting and the two
+note-specific extensions below run last, on the remaining text; code is
+spliced back in verbatim at the end.
+
+## 6. Labels and note references
+
+### 6.1 `#label`
+
+A `#` immediately followed by a word character starts a label — **no
+space allowed**. This is what disambiguates a label from an ATX header,
+which (per CommonMark and this parser) **requires** a space:
+`#label` → label; `# Title` → `<h1>`. A doubled `##word` (no space) is
+neither — not a header (no space) and not a label (the `#` is preceded
+by another `#`) — so it renders as inert literal text.
+
+A label can appear **anywhere** in a note's text, not just at the start
+of a line. Extraction and rendering both ignore anything inside code
+blocks/spans. Label names are case-insensitive for storage/dedup
+purposes — extraction lowercases before it ever reaches the database
+(`#Research` and `#research` are stored as the same `note_labels` name,
+backed up by `COLLATE NOCASE` on the column) — so the label list always shows
+one canonical entry per name with a combined count. Inline within a
+note's own rendered text, a `#label` still displays in whatever case the
+person actually typed; only the underlying row and the filter-link
+target are lowercased.
+
+### 6.2 `[[note-number]]`
+
+References another note by id, from anywhere in the text. Renders as a
+link (`/notes/<id>`) if that note exists and isn't soft-deleted;
+otherwise as a **ghost** — visually distinct (dashed, muted-red
+underline, a `title` tooltip) so a broken reference is visible at a
+glance instead of silently swallowed or erroring.
+
+### 6.3 Resyncing on save
+
+`create_note()` / `update_note()` re-parse the full body on every save,
+diff the resulting label set and reference set against what's currently
+stored in `note_labels` / `note_links`, and add/remove rows to match
+exactly. When the last note using a label stops using it, that label is
+simply gone from the list — there's no separate label record to clean
+up (§3). This is why labels and links are described as "derived" in §3 —
+the note body is the only thing a person actually edits; the index
+tables just track it.
+
+### 6.4 Label list & filtering
+
+The feed's sidebar lists every label currently in use, one per row with
+its usage count, most-used first. Clicking a label filters the feed to
+only notes carrying that label (`?label=name`); clicking the active
+label clears it.
+Combines with search (§7) — both can be active at once, and the
+combination is an AND (must match the search *and* carry the label).
+
+### 6.5 Backlinks
+
+The notes that reference a note via `[[id]]` — a plain reverse lookup
+on `note_links`, no re-parsing needed at render time. This is
+Zettelkasten's core navigation primitive: it's what makes a note's
+incoming connections as visible as its outgoing ones. Shown in three
+places:
+
+- **A note's own page** (`/notes/<id>`): the full list, below the body
+  and attachments.
+- **The inline expansion** on the feed-style lists: the same list,
+  capped at the 10 most recent (by the referencing note's sort date),
+  followed by "N more — see all on the note's page" when there are more.
+  The cap keeps a heavily-linked hub note from turning one expanded card
+  into a wall of hundreds of rows in the middle of the feed.
+- **A badge on every card** (`N backlinks`), counted with one grouped
+  query per page (`db.get_backlink_counts()`), not one per card. The
+  count is defined identically to the list — non-deleted referencing
+  notes, each counted once — so the badge always matches what you see
+  when you expand or open the note. A reference from a soft-deleted
+  note doesn't count.
+
+Each backlink row is a single link to the referencing note, showing:
+
+1. **Its title**: id, sort date, and first line (`md.first_line_text()`
+   — usually the header, markdown stripped, so `# About #physics` shows
+   as `About #physics`). This says *which* note links here.
+2. **The context of each mention** (`md.ref_contexts()`): the passage
+   around the `[[id]]`, with the reference highlighted. This says *why* it
+   links here — often the more useful half, since in a Zettelkasten the
+   reason for a link is the valuable part.
+
+Context rules:
+
+- The unit of context is the block the link sits in, matching how the
+  renderer splits blocks: a paragraph, a single list item, a single
+  header line, or a run of blockquote lines. A link in one bullet shows
+  that bullet, not the whole list.
+- The passage is trimmed to about 160 characters centered on the link,
+  breaking at word boundaries, with `…` where text was cut. If one side
+  of the link is short, the other side gets its unused space.
+- Deliberately **not** sentence-based: sentence splitting is unreliable
+  in research writing ("et al.", "e.g.", "Fig. 2", "p. 14", decimals),
+  and "the first sentence of the paragraph" can miss the link entirely
+  when it's further in. A character window around the link always
+  contains it.
+- Every mention gets its own context; a row shows at most 2, then
+  "and N more mentions".
+- A mention in the referencing note's first line is skipped — that line
+  is already the row's title. If that was the only mention, the row is
+  just the title.
+- A `[[id]]` inside inline code or a fenced code block isn't a link
+  (same rule as extraction, §5), so it's never shown as a mention.
+
+Precedent for showing context rather than titles alone: Obsidian's
+backlinks pane shows the text around each mention (truncated, with a
+toggle for the full paragraph), and Semantic Scholar shows "citation
+contexts" — the sentences in citing papers where a reference is cited.
+Wikipedia's "What links here" is the titles-only counterexample; it
+works there because article titles are self-explanatory, which a note's
+first line often isn't.
+
+Everything in a row is **plain text** rather than rendered HTML because
+rendered markdown can contain links of its own (labels, other
+`[[refs]]`), and a link inside the row's link is invalid HTML that
+browsers repair unpredictably.
+
+## 7. Search
+
+A search box on the feed (only the feed — not Orphans, not the
+Attachments tab). Two things happen depending on what's typed:
+
+1. **Full-text search** over note bodies via **SQLite FTS5** (external-
+   content table synced by insert/update/delete triggers, porter +
+   unicode61 tokenizer). Case-insensitive; stemmed (`research` also
+   matches `researching`); punctuation from `#labels` and `[[refs]]` is
+   a token boundary, so searching `zettelkasten` finds a note that only
+   contains `#zettelkasten`. Multi-word queries are split into
+   whitespace-separated tokens, each escaped as a literal quoted phrase
+   and ANDed together — user input can never be interpreted as FTS5
+   query-operator syntax. Results rank by FTS5's `bm25()` relevance.
+2. **If the entire query is digits**, notes whose id *starts with* that
+   number are additionally pulled in via a plain prefix match on
+   `CAST(id AS TEXT)` and placed **at the top**, ahead of the ordinary
+   text-relevance results — exact id match first, then the rest
+   ascending by id. Example: searching `100` promotes notes 100, 1000,
+   1005, ... to the top (in that order), with any note whose *text*
+   happens to contain "100" following after. A note that qualifies both
+   ways (its id matches the prefix *and* its text matches) is listed
+   once, in the id group. A mixed query like `100a` does **not** trigger
+   id-matching — only an all-digit query does.
+
+Search never navigates directly to a note; it always filters the feed
+list, consistent with the rest of the app (label filtering works the
+same way). Soft-deleted notes are excluded from both matching paths.
+Search composes with the label filter (§6.4) as an AND, and results are
+paginated like the rest of the feed (§4.2) — ranking happens across the
+whole result set before the page is cut.
+
+Migration note: the FTS index is backfilled on every startup
+(`INSERT OR IGNORE ... SELECT id, body FROM notes`), so upgrading an
+existing database created before search existed does not require a
+manual migration step — the first startup after upgrading indexes
+everything that's already there.
+
+## 8. Orphans
+
+`/orphans` lists notes with **zero** incoming and **zero** outgoing
+`[[links]]` — notes that were never integrated into the web of ideas.
+"Connected" uses the same rule as the graph (§10): a link *from* a note
+in Trash doesn't count, so a note referenced only by trashed notes is an
+orphan (and has no graph).
+Uses the same card component as the feed (§4). This is a Zettelkasten-
+hygiene view: a note that's been sitting orphaned is a prompt to go back
+and connect it to something.
+
+## 9. Attachments
+
+### 9.1 Model
+
+Attachments are **not** stored on the note row — they live in their own
+table, content-addressed by SHA-256 hash, with a many-to-many join table
+(`note_attachments`) so the same uploaded file can be linked from
+several notes without duplicating bytes. Uploading a file whose hash
+already exists just adds a link row; it does not write to disk again or
+create a second `attachments` row. There is no separate "attach an
+existing file" search/picker UI — automatic hash-based dedup on upload
+*is* the reuse mechanism, which is sufficient for the scale this app is
+built for (one person's notes, not hundreds of attachments per note).
+
+### 9.2 Storage layout
+
+```
+uploads/<hash[0:2]>/<hash[2:4]>/<hash><ext>
+```
+
+e.g. hash `abcd1234...` with a `.png` original → `uploads/ab/cd/abcd1234....png`.
+Sharded by the first 4 hex chars so no single directory accumulates
+thousands of files. The extension is captured as its own column at
+upload time (parsed from the original filename), so path construction
+never needs to re-derive it later, and `mime_type` (also captured at
+upload time) is the source of truth for the `Content-Type` header when
+serving the file back.
+
+Deleting a note, or unlinking an attachment from a note, never deletes
+the underlying file — it might still be linked from another note, and
+disk cleanup for fully-orphaned attachment files is out of scope (not a
+problem at this app's scale; see §12).
+
+### 9.3 Rendering
+
+No inline image markdown — `![]()` is not part of the supported subset
+(§5). Attachments render as a plain list (filename + size) below a
+note's body on both the standalone view and the inline feed expansion,
+and as an editable list (with Remove) on the edit page, plus an upload
+form. This was a deliberate simplification: attachments are metadata
+about a note, not part of its markdown content.
+
+On the edit page, uploading and removing happen **in place, without
+reloading the page**, so unsaved text in the editor is never lost:
+
+- The browser sends the form with `fetch` and an `X-Requested-With:
+  fetch` header. The server does the same work as for a plain form
+  submit, but answers with JSON — `ok`, a `message`, and the freshly
+  rendered attachment list (`_attachments_edit.html`) — which the page
+  swaps in. Without that header (e.g. JavaScript off) the same routes
+  flash a message and redirect back to the edit page, as before.
+- Attaching a file never saves the note's text; the two are
+  independent. (Saving first was considered and rejected: it would store
+  half-finished text every time a file is attached.)
+- Result messages appear next to the upload button: "Attached
+  figure-3.png.", "Removed dataset.csv from this note.", "figure-3.png
+  is already attached." (same bytes uploaded to the same note again), or
+  an error. When the uploaded bytes already exist under another name,
+  the message and list use the stored name, since dedup (§9.1) reuses
+  the existing file.
+- Files over the upload limit (`MAX_CONTENT_LENGTH`, 50 MB) are rejected
+  in the browser before uploading, naming the limit; the server enforces
+  the same limit (413) in case the browser check is bypassed.
+- A new, never-saved note has no attachment section — the note needs an
+  id first. Its sort date defaults to today (local time).
+
+### 9.4 Discovery: Attachments tab + count badge
+
+Two complementary ways to find notes with attachments, added together
+because they solve different problems:
+
+- **`/attachments` tab** (in the main nav, alongside Orphans/Graph/
+  Trash): a filtered feed-style view showing only notes that have at
+  least one attachment, using the same card component and query shape
+  as Orphans (`JOIN note_attachments`, ordered by sort date descending).
+  Answers "show me only these."
+- **Attachment-count badge**: every card everywhere (main feed, Orphans,
+  Attachments tab) shows a `N file(s)` meta-item alongside the id/date/
+  line-count stamp whenever a note has at least one attachment — nothing
+  rendered when it has none. (The `N backlinks` badge, §6.5, works the
+  same way.) Answers "does this one have anything?"
+  without needing to open a separate view. Counts are fetched in one
+  grouped query (`db.get_attachment_counts()`, `note_id -> count`) per
+  page render, not one query per note.
+
+An explicit design choice made alongside this: attachments are **not**
+represented as an automatic/synthetic label (e.g. an implicit
+`#has-attachment`). Labels are 100% user-authored — a label exists
+because someone typed `#word` in a note's text — and every label is
+resynced from parsed body text on every save (§6.3). Injecting a
+system-derived label into that same namespace would either get wiped on
+the next save (since it isn't actually in the text) or need special-
+casing that breaks the "labels = literally typed in the note" invariant,
+and it would be visually indistinguishable from a real label in the
+label list. A dedicated view keeps system-derived "notes with X" facts
+structurally separate from user-authored vocabulary.
+
+## 10. Graph views
+
+**A graph always belongs to a note.** It's reached only from a note's
+page ("View graph", §4.3) and shows the notes related to that note.
+There is deliberately no whole-collection graph: it was removed to keep
+the app smaller, and past a few hundred notes it was a hairball rather
+than something to read.
+
+Rendered with Cytoscape.js (bundled, §2), reading from a small JSON
+endpoint (`/api/graph/<id>`). The canvas takes the full
+window width and height below the top bar; scroll zooms, dragging the
+background pans, and nodes can be dragged.
+
+Layout and legibility:
+
+- Force-directed layout ("cose"), tuned for labeled boxes rather than
+  dots: node size includes the label, and edge length and repulsion are
+  set so boxes don't stack on top of each other. Measured on sample data:
+  no overlaps on small graphs; on a 60-note graph, about one run in six
+  leaves a single overlapping pair (the layout starts from random
+  positions), at a zoom level where labels are hidden anyway.
+- The initial view fits the whole graph, but never zooms in past 130%,
+  so a two-note graph isn't blown up to fill the window.
+- Labels that would render smaller than 8px are hidden rather than drawn
+  as smudges. A large graph therefore opens as an overview of boxes and
+  links; labels appear as you zoom in.
+- Hovering any node shows its full label in a tooltip, so notes can be
+  identified from the overview without zooming.
+
+- **`/graph/<id>`** (default 1 hop, 1–5 selectable): centered on the
+  note, showing only notes within N hops via breadth-first traversal over
+  the link adjacency (undirected for traversal purposes, since "is
+  connected to" should surface both incoming and outgoing neighbors).
+  "Back to note" returns to the note in View.
+- **Connected** means the note links out to anything — a missing or
+  deleted target counts, since the graph shows it as a ghost — or a note
+  that isn't in Trash links to it (`db.note_has_connections`). A note
+  that isn't connected has nothing to draw, so its View graph button is
+  greyed out with "No connections yet…" on hover, and its graph address
+  shows that message instead of a lone box. The button updates after
+  every save, so adding a note's first link enables it without a reload.
+  The Orphans list (§8) uses the same rule.
+- Edges are **directed** (arrowheads matter: A→B is a different fact
+  than B→A).
+- A `[[link]]` to a note that doesn't exist produces a **ghost node**
+  (dashed border, distinct color, not clickable) rather than being
+  silently omitted as an edge — same reasoning as the ghost styling in
+  the renderer (§6.2): broken references should be visible, not hidden.
+  A ghost node's existence is entirely implied by an edge pointing at
+  it, so "only show nodes with at least one connection" falls out
+  automatically with no special-casing.
+- Clicking a real node navigates to that note's standalone page.
+  Clicking a ghost node does nothing (there's nowhere to go).
+- **Labels are not represented on the graph at all** — no label-based
+  edges, no label nodes. Mixing "explicitly linked" and "happens to
+  share a tag" into one graph was considered and rejected early on: it
+  makes the graph noisier and conflates two different kinds of
+  relationship. Labels stay a feed-filtering mechanism only (§6.4).
+
+## 11. History (activity log)
+
+`/history` lists what you've done, newest first. Its main use is
+answering "what was I working on?" — which the feed can't, because the
+feed is ordered by sort date, which you set by hand: editing a note from
+last March today leaves it in March on the feed, but puts it at the top
+here.
+
+### 11.1 What's recorded
+
+| Event | Entry |
+|---|---|
+| New note | **Created** No. 11 Title |
+| Save that changes something | **Edited** No. 6 Title, with what changed (below) |
+| Delete / restore | **Deleted** / **Restored** No. 6 Title |
+| Attach / remove a file | **Attached** `fig.png` to No. 6 Title / **Removed** `fig.png` from … |
+
+An edit's changes: lines added and removed, labels added and removed,
+`[[links]]` added and removed ("now links to [[5]]", "no longer links to
+[[3]]"), a changed sort date, and how many saves were grouped into it.
+
+Not recorded: viewing, searching, filtering, the graph — anything that
+doesn't change a note. A save that changes nothing that counts isn't
+recorded either (e.g. pressing Ctrl+S twice, or only blank lines or
+trailing spaces changing). Uploading a file the note already has isn't
+recorded (§9.3).
+
+Line counting works like `git diff --stat`: a line that changed counts as
+one removed plus one added, so rewording a sentence reads "+1 / −1
+lines". Blank lines and trailing whitespace are ignored, matching the
+line count shown on cards (§4). When only one side changed, only that
+side is shown ("+3 lines", "−2 lines").
+
+### 11.2 Editing sessions
+
+Pressing Ctrl+S every minute while writing would otherwise produce a wall
+of "Edited" entries. Instead:
+
+- Saves to the same note less than **15 minutes** after the previous save
+  to it (`activity.SESSION_WINDOW`) extend one "Edited" entry. The window
+  slides: each save extends it.
+- The entry's changes are measured from the note **as it was when the
+  session began**, not summed per save — so adding a line and deleting it
+  again in the same session nets out to nothing. A session whose net
+  change is nothing (you undid everything) is removed entirely.
+- Saves within 15 minutes of **creating** a note fold into its "Created"
+  entry, since writing a new note usually means several saves.
+- To measure against the session's start, the entry holds the note's
+  starting text (`base_body`) while the session can still be extended.
+  It's cleared as soon as the session closes (checked on every save), so
+  old versions don't accumulate. It's never shown anywhere; this is an
+  activity log, not version history (§12).
+- The entry's time is its last save.
+
+### 11.3 The page
+
+- Entries grouped under local-day headings — "Today", "Yesterday", then
+  "Tuesday 22 September 2026" — with local 12-hour times. Timestamps are
+  stored in UTC (§13).
+- Each entry links to its note. A note that's currently deleted is shown
+  greyed and unlinked (its page would 404), with an "in Trash" link to the
+  Trash view.
+- Sidebar filters: All activity, New notes, Edits, Link changes (edits
+  that added or removed a `[[link]]`), Attachments, Deleted & restored.
+  Paginated like the other lists (§4.2); page links keep the filter.
+- In the top nav between Graph and Trash.
+
+### 11.4 Existing notes
+
+The log starts when this feature was added, so on the first startup
+after updating, every existing note gets a "Created" entry at its
+`created_at` time, and every note already in Trash gets a "Deleted"
+entry at its `deleted_at` time. Edits made before then aren't known, so
+they don't appear. (This runs on every startup but only fills in what's
+missing, so it never duplicates.)
+
+## 12. Explicitly out of scope
+
+Called out here so a future contributor doesn't wonder if these were
+overlooked:
+
+- **Auth / multi-user.** Single-user, no-auth is the design, not a
+  placeholder.
+- **Folgezettel-style branching ids** (`1`, `1a`, `1a1`, ...). Notes
+  have plain sequential integer ids. Explicit `[[links]]` + backlinks +
+  the graph view cover the associative purpose Folgezettel numbering
+  served in a paper Zettelkasten, more flexibly, in a digital tool.
+- **Structure notes / MOCs are not special-cased.** A structure note is
+  just an ordinary note whose body happens to be mostly a curated list
+  of `[[links]]` with commentary. No auto-pinning, no dedicated type.
+- **Related-notes-by-shared-label.** Considered, rejected: redundant
+  with the label filter, and would add a second, weaker-signal
+  discovery mechanism next to backlinks (a strong, explicit signal).
+- **Inline image markdown.** Attachments are metadata, not embedded
+  content (§9.3).
+- **Attachment cleanup / garbage collection.** An attachment with zero
+  remaining `note_attachments` rows is never auto-deleted from disk.
+  Not a problem at the scale this app is built for.
+- **An "attach an existing file" search/picker UI.** Removed after
+  initial build — hash-based dedup on upload already provides reuse
+  without needing a picker, and a search box across what's expected to
+  be a small number of attachments added complexity without adding
+  capability (see git history / conversation log for the original
+  attempt).
+- **A whole-collection graph.** Removed; a graph always belongs to a
+  note (§10).
+- **Separate View and Edit pages.** Replaced by one page per note with a
+  switch (§4.3).
+- **Infinite scroll.** Rejected in favor of numbered pagination; see
+  §4.2 for why.
+- **Phone / narrow-window layouts.** Desktop is the target (§1).
+- **Keyboard shortcuts beyond Ctrl+S.** Considered (search, moving
+  between cards, expand, edit, new note) and left out by choice.
+- **Version history (viewing or restoring old versions).** The History
+  page (§11) records *that* a note changed and roughly how, but not the
+  old text: every save overwrites the note body in place. Decided
+  explicitly when History was added: activity log only.
+
+## 13. Configuration & deployment
+
+- `run.py`: standalone launcher, reads `.env` (via `python-dotenv`),
+  starts the Flask dev server. `PORT` / `HOST` / `SECRET_KEY` /
+  `DATA_DIR` / `PAGE_SIZE` are the configurable values (see
+  `.env.example`). `PAGE_SIZE` must be a positive integer; anything else
+  falls back to the default of 50.
+- `Dockerfile` + `docker-compose.yml`: `PORT` flows through to both the
+  container's bound port and the host port mapping; `./data` is a bind
+  mount so the SQLite file and `uploads/` survive rebuilds. `TZ` (e.g.
+  `America/New_York`) sets the container's time zone; without it the
+  container runs in UTC.
+- Timestamps (`created_at`, `updated_at`, `deleted_at`) are stored in
+  UTC. Dates shown to the person — a new note's default sort date, the
+  deletion date in Trash — use the local time zone of the machine running
+  the app, which for this desktop app is the user's own.
+- `schema.sql` is applied with `CREATE TABLE/INDEX/TRIGGER IF NOT
+  EXISTS` on every startup — idempotent, safe to run against an
+  existing database, which is how new tables (like `notes_fts`, added
+  after the app's initial build) get backfilled into a database that
+  predates them without a separate migration step.
+- Changing an existing table's shape needs code, since `IF NOT EXISTS`
+  won't alter a table. The one case so far is the label tables (§3):
+  before `schema.sql` runs, `init_db` checks whether `note_labels` still
+  has a `label_id` column and, if so, drops it and `labels`. After the
+  schema creates the new table, `note_labels` is refilled from the note
+  text whenever it's empty but notes exist. That check looks at the data
+  rather than remembering "a migration just happened", so an upgrade
+  interrupted between dropping and refilling repairs itself on the next
+  startup. Since this is a single-user app, the two migration functions
+  (`_migrate_label_tables`, `_rebuild_label_index_if_missing`) can be
+  deleted once the one real database has started up on this version.

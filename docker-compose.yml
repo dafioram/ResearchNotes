@@ -7,6 +7,8 @@ services:
       - PORT=${PORT:-5000}
       - HOST=0.0.0.0
       - SECRET_KEY=${SECRET_KEY:-}
+      - PAGE_SIZE=${PAGE_SIZE:-50}
+      - TZ=${TZ:-UTC}
     volumes:
       - ./data:/app/data
     restart: unless-stopped

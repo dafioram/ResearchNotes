@@ -193,3 +193,72 @@ def test_render_first_line_skips_leading_blank_lines():
 
 def test_render_first_line_empty_body():
     assert md.render_first_line("") == ""
+
+
+# ---------------------------------------------------------------------
+# Backlink context (ref_contexts)
+# ---------------------------------------------------------------------
+
+def _ctx(body, target):
+    return [c["before"] + c["ref"] + c["after"] for c in md.ref_contexts(body, target)]
+
+
+def test_ref_context_is_the_passage_around_the_link():
+    body = "# Title\n\nSome text before [[5]] and after."
+    [c] = md.ref_contexts(body, 5)
+    assert c["before"] == "Some text before "
+    assert c["ref"] == "[[5]]"
+    assert c["after"] == " and after."
+    assert not c["clipped_before"] and not c["clipped_after"]
+
+
+def test_ref_context_skips_mention_in_title_line():
+    assert md.ref_contexts("# About [[5]]\nmore text", 5) == []
+    assert md.ref_contexts("single line with [[5]]", 5) == []
+
+
+def test_ref_context_strips_markdown_and_ignores_code():
+    body = "# T\nWe saw **big** effect in [[5]], see `code [[5]]`."
+    assert _ctx(body, 5) == ["We saw big effect in [[5]], see code [[5]]."]
+
+
+def test_ref_context_ignores_refs_inside_fenced_code():
+    body = "# T\n```\n[[5]] in code\n```\nafter block [[5]] here"
+    assert _ctx(body, 5) == ["after block [[5]] here"]
+
+
+def test_ref_context_one_entry_per_mention():
+    body = "# T\n\nA [[5]] b.\n\nC [[5]] d [[5]] e."
+    assert len(md.ref_contexts(body, 5)) == 3
+
+
+def test_ref_context_uses_the_list_item_not_the_whole_list():
+    body = "# T\n- first [[5]] item\n- second item"
+    assert _ctx(body, 5) == ["first [[5]] item"]
+
+
+def test_ref_context_only_highlights_the_target():
+    [c] = md.ref_contexts("# T\n[[4]] and [[5]] both #tag", 5)
+    assert c["before"] == "[[4]] and "
+    assert c["after"] == " both #tag"
+
+
+def test_ref_context_is_clipped_to_a_window_around_the_link():
+    body = "# T\n" + "word " * 80 + "[[5]]" + " tail" * 80
+    [c] = md.ref_contexts(body, 5, width=160)
+    assert c["clipped_before"] and c["clipped_after"]
+    assert len(c["before"]) + len(c["ref"]) + len(c["after"]) <= 160
+    assert not c["before"].startswith(("ord", "rd", "d ")) # starts on a word
+
+
+def test_ref_context_gives_unused_budget_to_the_other_side():
+    body = "# T\nShort [[5]] " + "long tail words " * 20
+    [c] = md.ref_contexts(body, 5, width=160)
+    assert c["before"] == "Short "
+    assert len(c["after"]) > 100  # got the before-side's leftover budget
+
+
+def test_ref_context_text_is_plain_not_html():
+    [c] = md.ref_contexts("# T\nsee [site](http://x.com) & <b>[[5]]</b>", 5)
+    assert c["before"] == "see site & <b>"
+    assert c["after"] == "</b>"

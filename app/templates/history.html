@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% from "_macros.html" import pagination %}
+{% block title %}History &middot; Research Notes{% endblock %}
+
+{% block sidebar %}
+  <h1 class="sidebar-title">History</h1>
+  <p class="sidebar-text">What you&rsquo;ve changed, newest first. Saves to the same note within {{ window_minutes }} minutes of each other are grouped into one entry.</p>
+  <p class="sidebar-count">{{ pager['total'] }} entr{{ 'ies' if pager['total'] != 1 else 'y' }}</p>
+
+  <p class="sidebar-heading">Show</p>
+  <nav class="label-list" aria-label="Filter history">
+    {% for f in filters %}
+      <a class="label-row plain {% if f['active'] %}active{% endif %}"
+         {% if f['active'] %}aria-current="true"{% endif %}
+         href="{{ f['url'] }}">{{ f['label'] }}</a>
+    {% endfor %}
+  </nav>
+{% endblock %}
+
+{% block content %}
+  {% if days %}
+    {% for day in days %}
+      <h2 class="history-day">{{ day['heading'] }}</h2>
+      <ol class="history-list">
+        {% for e in day['items'] %}
+          <li class="history-item kind-{{ e['kind'] }}">
+            <span class="history-time">{{ e['time'] }}</span>
+            <div class="history-body">
+              <p class="history-line">
+                <span class="history-verb">{{ e['verb'] }}</span>
+                {% if e['filename'] %}
+                  <span class="history-file">{{ e['filename'] }}</span> {{ e['preposition'] }}
+                {% endif %}
+                {% if e['in_trash'] %}
+                  <span class="history-note trashed"><span class="history-no">No. {{ e['note_id'] }}</span> {{ e['title'] }}</span>
+                  <a class="history-flag" href="{{ url_for('notes.trash') }}">in Trash</a>
+                {% else %}
+                  <a class="history-note" href="{{ url_for('notes.view_note', note_id=e['note_id']) }}"><span class="history-no">No. {{ e['note_id'] }}</span> {{ e['title'] }}</a>
+                {% endif %}
+              </p>
+              {% if e['changes'] %}
+                <p class="history-changes">
+                  {% for c in e['changes'] %}<span class="change">{{ c }}</span>{% endfor %}
+                </p>
+              {% endif %}
+            </div>
+          </li>
+        {% endfor %}
+      </ol>
+    {% endfor %}
+    {{ pagination(pager) }}
+  {% else %}
+    <div class="empty-state">
+      {% if show == 'all' %}
+        Nothing yet. Create or edit a note and it&rsquo;ll show up here.
+      {% else %}
+        Nothing under &ldquo;{{ filter_label }}&rdquo; yet.
+      {% endif %}
+    </div>
+  {% endif %}
+{% endblock %}

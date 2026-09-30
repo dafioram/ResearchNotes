@@ -1,10 +1,10 @@
 {% extends "base.html" %}
 {% from "_macros.html" import note_card_list, pagination %}
-{% block title %}Orphans &middot; Research Notes{% endblock %}
+{% block title %}Attachments &middot; Research Notes{% endblock %}
 
 {% block sidebar %}
-  <h1 class="sidebar-title">Orphans</h1>
-  <p class="sidebar-text">Notes with no incoming or outgoing links &mdash; ideas not yet connected to anything else.</p>
+  <h1 class="sidebar-title">Attachments</h1>
+  <p class="sidebar-text">Notes with at least one file attached.</p>
   <p class="sidebar-count">{{ pager['total'] }} note{{ 's' if pager['total'] != 1 else '' }}</p>
 {% endblock %}
 
@@ -13,7 +13,7 @@
     {{ note_card_list(notes) }}
     {{ pagination(pager) }}
   {% else %}
-    <div class="empty-state">Every note is connected to at least one other. Nothing orphaned.</div>
+    <div class="empty-state">No notes have attachments yet.</div>
   {% endif %}
 {% endblock %}
 

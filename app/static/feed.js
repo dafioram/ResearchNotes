@@ -29,8 +29,7 @@
         full.dataset.loaded = "true";
       })
       .catch(function () {
-        var link = card.querySelector(".meta-link");
-        var href = link ? link.getAttribute("href") : "#";
+        var href = "/notes/" + card.getAttribute("data-note-id");
         full.innerHTML =
           '<p class="loading-hint">Couldn\u2019t load this note here. ' +
           '<a href="' + href + '">Open it directly</a>.</p>';
@@ -57,5 +56,33 @@
         toggle(card);
       });
     }
+  });
+
+  // ---- landing on a just-created note ----
+  // After Done on a new note, the feed opens on the page containing it with
+  // ?focus=<id>: scroll it to the middle and highlight it briefly. The
+  // parameter is then dropped from the address so a refresh doesn't repeat it.
+  var script = document.currentScript;
+  var focusId = script && script.getAttribute("data-focus");
+  if (focusId) {
+    var target = document.querySelector('.note-card[data-note-id="' + focusId + '"]');
+    if (target) {
+      target.scrollIntoView({ block: "center" });
+      target.classList.add("just-added");
+      target.addEventListener("animationend", function () {
+        target.classList.remove("just-added");
+      }, { once: true });
+    }
+    var url = new URL(window.location.href);
+    url.searchParams.delete("focus");
+    history.replaceState(null, "", url.pathname + url.search + url.hash);
+  }
+
+  // ---- never show a stale list after Back ----
+  // Pages are sent no-store so Back re-fetches them, but a browser may still
+  // restore this page from its back/forward cache; if so, reload. The
+  // browser keeps the scroll position across the reload.
+  window.addEventListener("pageshow", function (e) {
+    if (e.persisted) window.location.reload();
   });
 })();

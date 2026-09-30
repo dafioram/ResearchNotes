@@ -1,14 +1,18 @@
 {% extends "base.html" %}
 {% block title %}Trash &middot; Research Notes{% endblock %}
+
+{% block sidebar %}
+  <h1 class="sidebar-title">Trash</h1>
+  <p class="sidebar-text">Deleted notes keep their number. Links to them show as broken until they&rsquo;re restored.</p>
+  <p class="sidebar-count">{{ notes | length }} note{{ 's' if notes | length != 1 else '' }}</p>
+{% endblock %}
+
 {% block content %}
-
-  <p class="section-title">Trash &mdash; soft-deleted notes</p>
-
   {% if notes %}
     <div class="trash-list">
       {% for n in notes %}
         <div class="trash-row">
-          <span>No. {{ n['id'] }} &mdash; deleted {{ n['deleted_at'][:10] }}</span>
+          <span>No. {{ n['id'] }} &mdash; deleted {{ n['deleted_on'] }}</span>
           <form method="post" action="{{ url_for('notes.restore_note', note_id=n['id']) }}">
             <button type="submit" class="btn-quiet">Restore</button>
           </form>
@@ -18,5 +22,4 @@
   {% else %}
     <div class="empty-state">Trash is empty.</div>
   {% endif %}
-
 {% endblock %}

@@ -1,0 +1,27 @@
+{#
+  A note as read: rendered body, its attachments, its backlinks. Used by
+  the note page's View mode (re-rendered and swapped in after each save)
+  and by the inline expansion on feed-style lists.
+  Expects: note, attachments, backlinks.
+  Optional: inline (feed expansion styling), backlink_limit, more_url.
+#}
+{% from "_macros.html" import backlink_list %}
+<div class="note-body{% if inline %} note-body-inline{% endif %}">
+  {{ note['html'] | safe }}
+</div>
+
+{% if attachments %}
+<div class="section">
+  <p class="section-title">Attachments</p>
+  <ul class="attachment-list">
+    {% for a in attachments %}
+      <li class="attachment-row">
+        <a href="{{ url_for('notes.serve_attachment', file_hash=a['hash']) }}" target="_blank" rel="noopener">{{ a['filename'] }}</a>
+        <span class="size">{{ (a['size'] / 1024) | round(1) }} KB</span>
+      </li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{{ backlink_list(backlinks, limit=backlink_limit, more_url=more_url) }}

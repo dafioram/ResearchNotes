@@ -1,0 +1,24 @@
+{#
+  The attachment editor in Edit mode: current files (each removable) and an
+  upload form. Uploading and removing happen in place (app.js), so unsaved
+  text in the editor is never lost; without JS the forms still work as
+  plain submits. Rendered with the page for an existing note, and sent
+  back by the first save of a new note so files can be attached right away.
+  Expects: note_id, attachments.
+#}
+<div class="section">
+  <p class="section-title">Attachments</p>
+  <div id="attachments-panel">
+    {% include "_attachments_edit.html" %}
+  </div>
+  <form id="attachment-upload" method="post" enctype="multipart/form-data"
+        action="{{ url_for('notes.upload_attachment', note_id=note_id) }}"
+        data-max-bytes="{{ config['MAX_CONTENT_LENGTH'] }}">
+    <div class="field" style="margin-bottom:8px;">
+      <label for="file">Upload a new attachment</label>
+      <input type="file" id="file" name="file">
+    </div>
+    <button type="submit" class="btn-quiet">Upload &amp; attach</button>
+    <span id="attachment-status" class="attachment-status" role="status" aria-live="polite"></span>
+  </form>
+</div>

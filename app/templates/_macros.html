@@ -1,0 +1,118 @@
+{#
+  Shared rendering for one feed-style note card: used by the feed itself,
+  Orphans, and the Attachments tab, so all three stay visually and
+  behaviorally identical (expand/collapse, Edit button, permalink,
+  attachment-count badge) rather than drifting apart as separate copies.
+  Expects a dict with: id, sort_date, line_count, attachment_count,
+  backlink_count, snippet_html.
+#}
+{% macro note_card(n) -%}
+<div class="note-card" data-note-id="{{ n['id'] }}"
+     data-fragment-url="{{ url_for('notes.note_fragment', note_id=n['id']) }}">
+  <div class="note-card-top">
+    <div class="meta">
+      <span class="meta-item">No. {{ n['id'] }}</span>
+      <span class="meta-item">{{ n['sort_date'] }}</span>
+      <span class="meta-item">{{ n['line_count'] }} line{{ 's' if n['line_count'] != 1 else '' }}</span>
+      {% if n['attachment_count'] %}
+        <span class="meta-item">{{ n['attachment_count'] }} file{{ 's' if n['attachment_count'] != 1 else '' }}</span>
+      {% endif %}
+      {% if n['backlink_count'] %}
+        <span class="meta-item">{{ n['backlink_count'] }} backlink{{ 's' if n['backlink_count'] != 1 else '' }}</span>
+      {% endif %}
+    </div>
+    <div class="note-card-actions">
+      <a class="card-action" href="{{ url_for('notes.edit_note_form', note_id=n['id']) }}">Edit</a>
+      <button type="button" class="disclosure-btn" aria-expanded="false" aria-label="Expand note {{ n['id'] }}">
+        <span class="disclosure-icon" aria-hidden="true">&#9656;</span>
+      </button>
+    </div>
+  </div>
+  <div class="card-clickzone" data-role="clickzone">
+    <div class="snippet" data-role="snippet">{{ n['snippet_html'] | safe }}</div>
+    <div class="full-view" data-role="full" hidden></div>
+  </div>
+</div>
+{%- endmacro %}
+
+{% macro note_card_list(notes) -%}
+<div class="note-list">
+  {% for n in notes %}{{ note_card(n) }}{% endfor %}
+</div>
+{%- endmacro %}
+
+{#
+  Notes that reference the current one via [[id]]. Used on a note's own
+  page and in its inline expansion on the feed. Each row is one link, so
+  the snippet is plain text: rendered markdown can contain links of its
+  own (labels, [[refs]]), and links can't nest.
+#}
+{% macro backlink_list(backlinks, limit=none, more_url=none) -%}
+{% if backlinks %}
+{% set total = backlinks | length %}
+{% set shown = backlinks[:limit] if limit else backlinks %}
+<div class="section">
+  <p class="section-title">Backlinks &mdash; {{ total }} note{{ 's' if total != 1 else '' }} reference{{ '' if total != 1 else 's' }} this one</p>
+  <ul class="backlink-list">
+    {% for b in shown %}
+      <li>
+        <a class="backlink-row" href="{{ url_for('notes.view_note', note_id=b['id']) }}">
+          <span class="backlink-head">
+            <span class="meta-item">No. {{ b['id'] }}</span>
+            <span class="meta-item">{{ b['sort_date'] }}</span>
+            <span class="backlink-text">{{ b['text'] or '(empty note)' }}</span>
+          </span>
+          {% for m in b['mentions'][:2] %}
+            <span class="backlink-context">{% if m['clipped_before'] %}&hellip;{% endif %}{{ m['before'] }}<mark class="backlink-ref">{{ m['ref'] }}</mark>{{ m['after'] }}{% if m['clipped_after'] %}&hellip;{% endif %}</span>
+          {% endfor %}
+          {% if b['mentions'] | length > 2 %}
+            {% set extra = b['mentions'] | length - 2 %}
+            <span class="backlink-context backlink-context-more">and {{ extra }} more mention{{ 's' if extra != 1 else '' }}</span>
+          {% endif %}
+        </a>
+      </li>
+    {% endfor %}
+    {% if total > shown | length and more_url %}
+      <li>
+        <a class="backlink-row backlink-more" href="{{ more_url }}">
+          {{ total - shown | length }} more &mdash; see all on the note&rsquo;s page
+        </a>
+      </li>
+    {% endif %}
+  </ul>
+</div>
+{% endif %}
+{%- endmacro %}
+
+{#
+  Page navigation for the paginated lists. Hidden entirely when
+  everything fits on one page.
+#}
+{% macro pagination(p) -%}
+{% if p and p['total_pages'] > 1 %}
+<nav class="pager" aria-label="Pages">
+  {% if p['prev_url'] %}
+    <a class="pager-step" href="{{ p['prev_url'] }}" rel="prev">Previous</a>
+  {% else %}
+    <span class="pager-step disabled" aria-disabled="true">Previous</span>
+  {% endif %}
+  <span class="pager-pages">
+    {% for link in p['links'] %}
+      {% if link['gap'] %}
+        <span class="pager-gap" aria-hidden="true">&hellip;</span>
+      {% elif link['current'] %}
+        <span class="pager-num current" aria-current="page">{{ link['num'] }}</span>
+      {% else %}
+        <a class="pager-num" href="{{ link['url'] }}" aria-label="Page {{ link['num'] }}">{{ link['num'] }}</a>
+      {% endif %}
+    {% endfor %}
+  </span>
+  {% if p['next_url'] %}
+    <a class="pager-step" href="{{ p['next_url'] }}" rel="next">Next</a>
+  {% else %}
+    <span class="pager-step disabled" aria-disabled="true">Next</span>
+  {% endif %}
+</nav>
+<p class="pager-summary">Showing {{ p['first'] }}&ndash;{{ p['last'] }} of {{ p['total'] }}</p>
+{% endif %}
+{%- endmacro %}

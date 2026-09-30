@@ -1,53 +1,52 @@
 {% extends "base.html" %}
-{% block title %}Research Notes{% endblock %}
-{% block content %}
+{% from "_macros.html" import note_card_list, pagination %}
+{% block title %}{% if query %}Search: {{ query }} &middot; {% endif %}Research Notes{% endblock %}
+{% block sidebar %}
+  <form class="search-form" method="get" action="{{ url_for('notes.feed') }}" role="search">
+    <input type="search" name="q" value="{{ query }}"
+           placeholder="Word or note no."
+           aria-label="Search notes" autocomplete="off">
+    {% if active_label %}<input type="hidden" name="label" value="{{ active_label }}">{% endif %}
+    <button type="submit" class="btn-quiet">Search</button>
+  </form>
 
   {% if labels %}
-  <div class="label-cloud">
+  <p class="sidebar-heading">Labels</p>
+  <nav class="label-list" aria-label="Filter by label">
     {% for l in labels %}
-      <a class="label-chip {% if active_label == l['name'] %}active{% endif %}"
-         href="{{ url_for('notes.feed', label=l['name']) if active_label != l['name'] else url_for('notes.feed') }}">
-        #{{ l['name'] }} <span class="count">{{ l['count'] }}</span>
+      <a class="label-row {% if active_label == l['name'] %}active{% endif %}"
+         {% if active_label == l['name'] %}aria-current="true"{% endif %}
+         href="{{ url_for('notes.feed', label=(none if active_label == l['name'] else l['name']), q=(query or none)) }}">
+        <span class="label-name">#{{ l['name'] }}</span>
+        <span class="count">{{ l['count'] }}</span>
       </a>
     {% endfor %}
-  </div>
+  </nav>
   {% endif %}
+{% endblock %}
 
-  {% if active_label %}
+{% block content %}
+
+  {% if active_label or query %}
     <div class="filter-banner">
-      Showing notes tagged <strong>#{{ active_label }}</strong> &middot;
-      <a href="{{ url_for('notes.feed') }}">clear filter</a>
+      {% if query %}Searching for <strong>&ldquo;{{ query }}&rdquo;</strong>{% endif %}
+      {% if query and active_label %} &middot; {% endif %}
+      {% if active_label %}tagged <strong>#{{ active_label }}</strong>{% endif %}
+      &middot;
+      <a href="{{ url_for('notes.feed') }}">clear{% if query and active_label %} all{% endif %}</a>
     </div>
   {% endif %}
 
   {% if notes %}
-    <div class="note-list">
-      {% for n in notes %}
-        <div class="note-card" data-note-id="{{ n['id'] }}"
-             data-fragment-url="{{ url_for('notes.note_fragment', note_id=n['id']) }}">
-          <div class="note-card-top">
-            <div class="meta">
-              <a class="meta-item meta-link" href="{{ url_for('notes.view_note', note_id=n['id']) }}">No. {{ n['id'] }}</a>
-              <span class="meta-item">{{ n['sort_date'] }}</span>
-              <span class="meta-item">{{ n['line_count'] }} line{{ 's' if n['line_count'] != 1 else '' }}</span>
-            </div>
-            <div class="note-card-actions">
-              <a class="card-action" href="{{ url_for('notes.edit_note_form', note_id=n['id']) }}">Edit</a>
-              <button type="button" class="disclosure-btn" aria-expanded="false" aria-label="Expand note {{ n['id'] }}">
-                <span class="disclosure-icon" aria-hidden="true">&#9656;</span>
-              </button>
-            </div>
-          </div>
-          <div class="card-clickzone" data-role="clickzone">
-            <div class="snippet" data-role="snippet">{{ n['snippet_html'] | safe }}</div>
-            <div class="full-view" data-role="full" hidden></div>
-          </div>
-        </div>
-      {% endfor %}
-    </div>
+    {{ note_card_list(notes) }}
+    {{ pagination(pager) }}
   {% else %}
     <div class="empty-state">
-      {% if active_label %}
+      {% if query and active_label %}
+        No notes matching &ldquo;{{ query }}&rdquo; tagged #{{ active_label }}.
+      {% elif query %}
+        No notes matching &ldquo;{{ query }}&rdquo;.
+      {% elif active_label %}
         No notes tagged #{{ active_label }}.
       {% else %}
         No notes yet. Start your first one.
@@ -58,5 +57,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', filename='feed.js') }}"></script>
+<script src="{{ url_for('static', filename='feed.js') }}" data-focus="{{ focus or '' }}"></script>
 {% endblock %}
