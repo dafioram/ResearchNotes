@@ -82,8 +82,8 @@ def test_first_save_of_new_note_creates_it_and_sends_page_pieces(client, app):
     assert data["update_url"] == f"/notes/{note_id}/edit"
     assert data["edit_url"] == f"/notes/{note_id}/edit"
     assert data["view_url"] == f"/notes/{note_id}"
-    assert 'id="attachment-upload"' in data["attachments_html"]
-    assert f'action="/notes/{note_id}/attachments/upload"' in data["attachments_html"]
+    assert 'id="attachments-section"' in data["attachments_html"]
+    assert f'data-upload-url="/notes/{note_id}/attachments/upload"' in data["attachments_html"]
     assert 'id="graph-btn"' in data["common_html"] and 'id="delete-form"' in data["common_html"]
     assert data["feed_url"] == f"/?focus={note_id}"
     # and saving again updates the same note instead of creating another
@@ -179,3 +179,12 @@ def test_graph_page_for_unconnected_note_explains_instead_of_drawing(client, app
 
 def test_graph_api_404_for_missing_note(client):
     assert client.get("/api/graph/12345").status_code == 404
+
+
+def test_attachments_are_added_by_dropping_not_a_file_picker(client, app):
+    note_id = _create(app)
+    page = client.get(f"/notes/{note_id}/edit").data.decode()
+    assert 'type="file"' not in page and "Upload &amp; attach" not in page
+    assert "Drop a file anywhere on the page to attach it." in page
+    assert f'data-upload-url="/notes/{note_id}/attachments/upload"' in page
+    assert 'data-max-bytes="52428800"' in page

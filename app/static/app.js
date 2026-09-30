@@ -269,9 +269,10 @@
   if (mode() === "edit") textarea.focus({ preventScroll: true });
 
   // ------------------------------------------------------------------
-  // Attachments: upload and remove in place, never touching the editor.
-  // The whole section is swapped in after a new note's first save, so
-  // everything here is looked up at event time, not bound up front.
+  // Attachments: drop files anywhere on the page while editing.
+  // Uploading and removing happen in place, never touching the editor.
+  // The attachment section is swapped in after a new note's first save,
+  // so everything here is looked up at event time, not bound up front.
   // ------------------------------------------------------------------
 
   function formatMB(bytes) {
@@ -285,70 +286,158 @@
     el.classList.toggle("error", !!isError);
   }
 
-  function sendAttachmentForm(formEl) {
-    var uploadForm = document.getElementById("attachment-upload");
-    return fetch(formEl.action, {
-      method: "POST",
-      body: new FormData(formEl),
-      headers: { "X-Requested-With": "fetch" },
-    })
+  function afterAttachmentChange(data) {
+    var panel = document.getElementById("attachments-panel");
+    if (data.html !== undefined && panel) panel.innerHTML = data.html;
+    var viewPane = document.getElementById("view-pane");
+    if (data.view_html && viewPane) viewPane.innerHTML = data.view_html;
+  }
+
+  // POST to an attachment endpoint; resolves with the JSON reply or
+  // rejects with an Error whose message is fit to show.
+  function postAttachment(url, body, maxBytes) {
+    return fetch(url, { method: "POST", body: body, headers: { "X-Requested-With": "fetch" } })
       .catch(function () {
         throw new Error("Couldn’t reach the app. Is it still running?");
       })
       .then(function (r) {
         if (r.status === 413) {
-          var max = uploadForm && uploadForm.getAttribute("data-max-bytes");
-          throw new Error("That file is over the " + (max ? formatMB(+max) : "upload") + " limit.");
+          throw new Error("over the " + (maxBytes ? formatMB(maxBytes) : "upload") + " limit");
         }
         return r.json().then(
           function (data) {
-            var panel = document.getElementById("attachments-panel");
-            if (data.html !== undefined && panel) panel.innerHTML = data.html;
-            var viewPane = document.getElementById("view-pane");
-            if (data.view_html && viewPane) viewPane.innerHTML = data.view_html;
+            afterAttachmentChange(data);
             if (!data.ok) throw new Error(data.message);
             return data;
           },
-          function () {
-            throw new Error("Something went wrong; attachments weren’t changed.");
-          }
+          function () { throw new Error("Something went wrong; attachments weren’t changed."); }
         );
       });
   }
 
+  // Upload dropped files one after another, then say how it went.
+  function uploadFiles(files) {
+    var section = document.getElementById("attachments-section");
+    if (!section || !files.length) return;
+    var url = section.getAttribute("data-upload-url");
+    var maxBytes = +section.getAttribute("data-max-bytes") || 0;
+    var attached = [], problems = [];
+
+    var chain = Promise.resolve();
+    files.forEach(function (file, i) {
+      chain = chain.then(function () {
+        if (maxBytes && file.size > maxBytes) {
+          problems.push(file.name + " is over the " + formatMB(maxBytes) + " limit");
+          return;
+        }
+        attachmentStatus("Uploading " + file.name +
+          (files.length > 1 ? " (" + (i + 1) + " of " + files.length + ")" : "") + "…");
+        var body = new FormData();
+        body.append("file", file, file.name);
+        return postAttachment(url, body, maxBytes).then(
+          function (data) { attached.push(data.message); },
+          function (err) {
+            var msg = err.message;
+            problems.push(/^over the/.test(msg) ? file.name + " is " + msg : file.name + ": " + msg);
+          }
+        );
+      });
+    });
+
+    chain.then(function () {
+      var parts = [];
+      if (attached.length === 1) parts.push(attached[0]);
+      else if (attached.length > 1) parts.push("Attached " + attached.length + " files.");
+      if (problems.length) parts.push(problems.join("; ") + ".");
+      attachmentStatus(parts.join(" "), problems.length > 0);
+    });
+  }
+
+  // Remove buttons live inside the list, which is replaced after every change.
   document.addEventListener("submit", function (e) {
-    var uploadForm = e.target.closest("#attachment-upload");
-    if (uploadForm) {
-      e.preventDefault();
-      var fileInput = uploadForm.querySelector('input[type="file"]');
-      var button = uploadForm.querySelector('button[type="submit"]');
-      var maxBytes = +uploadForm.getAttribute("data-max-bytes") || 0;
-      var file = fileInput.files[0];
-      if (!file) { attachmentStatus("Choose a file to upload.", true); return; }
-      if (maxBytes && file.size > maxBytes) {
-        attachmentStatus(file.name + " is over the " + formatMB(maxBytes) + " limit.", true);
-        return;
-      }
-      button.disabled = true;
-      attachmentStatus("Uploading " + file.name + "…");
-      sendAttachmentForm(uploadForm)
-        .then(function (data) { uploadForm.reset(); attachmentStatus(data.message); })
-        .catch(function (err) { attachmentStatus(err.message, true); })
-        .then(function () { button.disabled = false; });
+    var removeForm = e.target.closest("form[data-attachment-remove]");
+    if (!removeForm) return;
+    e.preventDefault();
+    var button = removeForm.querySelector("button");
+    if (button) button.disabled = true;
+    postAttachment(removeForm.action, new FormData(removeForm), 0)
+      .then(function (data) { attachmentStatus(data.message); })
+      .catch(function (err) {
+        attachmentStatus(err.message, true);
+        if (button) button.disabled = false;
+      });
+  });
+
+  // ---- the drop target: the whole page ----
+  // While a file is dragged over the window, an overlay says what dropping
+  // will do. Only drags carrying files count (dragging selected text inside
+  // the editor is left alone). The browser's default for a dropped file is
+  // to open it in place of the page -- which would throw away unsaved text
+  // -- so that default is always cancelled here.
+
+  var overlay = document.createElement("div");
+  overlay.className = "drop-overlay";
+  overlay.hidden = true;
+  overlay.innerHTML = '<div class="drop-overlay-box"><p class="drop-overlay-title"></p><p class="drop-overlay-text"></p></div>';
+  document.body.appendChild(overlay);
+
+  function carriesFiles(e) {
+    var types = e.dataTransfer && e.dataTransfer.types;
+    return !!types && Array.prototype.indexOf.call(types, "Files") !== -1;
+  }
+
+  // What a drop would do right now: attach, or why it can't.
+  function dropState() {
+    if (mode() !== "edit") {
+      return { ok: false, title: "Switch to Edit to attach files", text: "Files are attached while editing a note." };
+    }
+    if (!document.getElementById("attachments-section")) {
+      return { ok: false, title: "Save the note first", text: "Files can be attached once the note has been saved." };
+    }
+    return { ok: true, title: "Drop to attach to No. " + state.noteId, text: "Several files at once is fine." };
+  }
+
+  var dragDepth = 0;
+  function showOverlay() {
+    var s = dropState();
+    overlay.classList.toggle("refuse", !s.ok);
+    overlay.querySelector(".drop-overlay-title").textContent = s.title;
+    overlay.querySelector(".drop-overlay-text").textContent = s.text;
+    overlay.hidden = false;
+  }
+  function hideOverlay() {
+    dragDepth = 0;
+    overlay.hidden = true;
+  }
+
+  window.addEventListener("dragenter", function (e) {
+    if (!carriesFiles(e)) return;
+    e.preventDefault();
+    dragDepth += 1;
+    if (dragDepth === 1) showOverlay();
+  });
+  window.addEventListener("dragover", function (e) {
+    if (!carriesFiles(e)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = dropState().ok ? "copy" : "none";
+  });
+  window.addEventListener("dragleave", function (e) {
+    if (!carriesFiles(e)) return;
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) overlay.hidden = true;
+  });
+  window.addEventListener("drop", function (e) {
+    if (!carriesFiles(e)) return;
+    e.preventDefault();   // never let the browser open the file
+    var s = dropState();
+    if (!s.ok) {
+      // Leave the explanation up briefly: in View there's no status line.
+      dragDepth = 0;
+      showOverlay();
+      setTimeout(function () { if (dragDepth === 0) overlay.hidden = true; }, 1800);
       return;
     }
-
-    var removeForm = e.target.closest("form[data-attachment-remove]");
-    if (removeForm) {
-      e.preventDefault();
-      var removeButton = removeForm.querySelector("button");
-      if (removeButton) removeButton.disabled = true;
-      sendAttachmentForm(removeForm)
-        .then(function (data) { attachmentStatus(data.message); })
-        .catch(function (err) {
-          attachmentStatus(err.message, true);
-          if (removeButton) removeButton.disabled = false;
-        });
-    }
+    hideOverlay();
+    uploadFiles(Array.prototype.slice.call(e.dataTransfer.files));
   });
 })();

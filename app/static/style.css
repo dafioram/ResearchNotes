@@ -33,7 +33,7 @@ body {
   background: var(--paper);
   color: var(--ink);
   font-family: var(--serif);
-  font-size: 17px;
+  font-size: 18px;
   line-height: 1.6;
 }
 
@@ -50,10 +50,15 @@ a:hover { color: var(--ink); }
    ------------------------------------------------------------------- */
 
 :root {
-  --app-width: 1240px;
-  --app-gutter: 32px;
-  --sidebar-width: 240px;
-  --reading-width: 760px;
+  /* The app fills the window up to 1760px wide (a big desktop monitor),
+     with the main column taking all the width beside the sidebar. */
+  --app-width: 1760px;
+  --app-gutter: 40px;
+  --sidebar-width: 270px;
+  /* Paragraphs of note text stop at about 100 characters even when the
+     column is wider, so long lines stay readable; everything else
+     (cards, lists, headings, the editor) uses the full width. */
+  --prose-measure: 100ch;
 }
 
 .topbar {
@@ -87,11 +92,12 @@ a:hover { color: var(--ink); }
   align-items: start;
 }
 
-/* Main column: reading width by default, so note text keeps a
-   comfortable line length and lists sit in the same place on every page.
-   The editor opts into the full remaining width. */
-.main { min-width: 0; max-width: var(--reading-width); }
-.solo > .main { max-width: none; }
+/* Main column: all the width beside the sidebar. */
+.main { min-width: 0; }
+
+.note-body p,
+.note-body li,
+.note-body blockquote { max-width: var(--prose-measure); }
 
 .sidebar {
   position: sticky;
@@ -103,14 +109,14 @@ a:hover { color: var(--ink); }
 
 .sidebar-title {
   font-family: var(--serif);
-  font-size: 24px;
+  font-size: 25px;
   font-weight: 600;
   line-height: 1.2;
   margin: 0 0 10px;
 }
 
 .sidebar-text {
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1.5;
   color: var(--ink-soft);
   margin: 0 0 12px;
@@ -118,14 +124,14 @@ a:hover { color: var(--ink); }
 
 .sidebar-count {
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: 13.5px;
   color: var(--ink-faint);
   margin: 0;
 }
 
 .sidebar-heading {
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: 13.5px;
   color: var(--ink-soft);
   margin: 26px 0 8px;
   padding-bottom: 6px;
@@ -149,7 +155,7 @@ a:hover { color: var(--ink); }
 .wordmark {
   font-family: var(--mono);
   font-weight: 600;
-  font-size: 15px;
+  font-size: 16px;
   letter-spacing: 0.02em;
   color: var(--ink);
   text-decoration: none;
@@ -162,7 +168,7 @@ a:hover { color: var(--ink); }
   display: flex;
   gap: 4px;
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 .nav a {
@@ -189,7 +195,7 @@ a:hover { color: var(--ink); }
 
 .flash {
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: 14px;
   background: var(--label-bg);
   color: var(--label-fg);
   border: 1px solid var(--rule);
@@ -208,7 +214,7 @@ a:hover { color: var(--ink); }
   flex: 1;
   min-width: 0;
   font-family: var(--serif);
-  font-size: 15px;
+  font-size: 16px;
   border: 1px solid var(--rule);
   background: var(--card);
   padding: 7px 10px;
@@ -232,7 +238,7 @@ a:hover { color: var(--ink); }
   align-items: baseline;
   gap: 10px;
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: 14px;
   color: var(--label-fg);
   text-decoration: none;
   padding: 4px 8px;
@@ -246,7 +252,7 @@ a:hover { color: var(--ink); }
 
 .filter-banner {
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: 14px;
   color: var(--ink-soft);
   margin-bottom: 18px;
 }
@@ -259,7 +265,7 @@ a:hover { color: var(--ink); }
   gap: 6px;
   flex-wrap: wrap;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--ink-soft);
   margin-bottom: 10px;
 }
@@ -305,7 +311,7 @@ a:hover { color: var(--ink); }
 
 .card-action {
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: 13.5px;
   text-decoration: none;
   color: var(--ink-soft);
   border: 1px solid var(--rule);
@@ -340,7 +346,7 @@ a:hover { color: var(--ink); }
 
 .note-card .snippet { color: var(--ink); }
 .note-card .snippet h1, .note-card .snippet h2, .note-card .snippet h3 {
-  margin: 0; font-size: 19px; font-weight: 600;
+  margin: 0; font-size: 20px; font-weight: 600;
 }
 .note-card .snippet p { margin: 0; }
 
@@ -356,7 +362,7 @@ a:hover { color: var(--ink); }
 
 .loading-hint {
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: 13.5px;
   color: var(--ink-faint);
   margin: 6px 0;
 }
@@ -367,7 +373,7 @@ a:hover { color: var(--ink); }
   text-align: center;
   color: var(--ink-soft);
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: 14px;
 }
 
 /* ---- note render / edit view --------------------------------------- */
@@ -386,10 +392,10 @@ a:hover { color: var(--ink); }
   margin: 1.1em 0 0.4em;
 }
 .note-body h1:first-child, .note-body h2:first-child, .note-body h3:first-child { margin-top: 0; }
-.note-body h1 { font-size: 30px; }
-.note-body h2 { font-size: 24px; }
-.note-body h3 { font-size: 20px; }
-.note-body h4, .note-body h5, .note-body h6 { font-size: 17px; }
+.note-body h1 { font-size: 31px; }
+.note-body h2 { font-size: 25px; }
+.note-body h3 { font-size: 21px; }
+.note-body h4, .note-body h5, .note-body h6 { font-size: 18px; }
 
 .note-body p { margin: 0.9em 0; }
 .note-body ul, .note-body ol { margin: 0.9em 0; padding-left: 1.4em; }
@@ -462,7 +468,7 @@ a:hover { color: var(--ink); }
 
 .section-title {
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: 14px;
   color: var(--ink-soft);
   margin: 0 0 10px;
   padding-bottom: 8px;
@@ -493,10 +499,10 @@ a:hover { color: var(--ink); }
 .backlink-row:hover { background: #fff; color: var(--ink); }
 .backlink-row:hover .backlink-text { text-decoration: underline; text-underline-offset: 3px; }
 
-.backlink-more { font-family: var(--mono); font-size: 12.5px; color: var(--accent); }
+.backlink-more { font-family: var(--mono); font-size: 13.5px; color: var(--accent); }
 .backlink-more:hover { color: var(--ink); }
 
-.backlink-row .meta-item { flex-shrink: 0; font-family: var(--mono); font-size: 12px; color: var(--ink-soft); }
+.backlink-row .meta-item { flex-shrink: 0; font-family: var(--mono); font-size: 13px; color: var(--ink-soft); }
 /* Fixed-ish id column so snippets line up regardless of id length. */
 .backlink-row .meta-item:first-child { min-width: 6.8em; }
 
@@ -521,7 +527,7 @@ a:hover { color: var(--ink); }
   margin: 6px 0 0 2px;
   padding-left: 10px;
   border-left: 2px solid var(--rule);
-  font-size: 15px;
+  font-size: 16px;
   line-height: 1.5;
   color: var(--ink-soft);
 }
@@ -529,7 +535,7 @@ a:hover { color: var(--ink); }
 .backlink-context-more {
   border-left-color: transparent;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--ink-faint);
 }
 
@@ -551,7 +557,7 @@ a:hover { color: var(--ink); }
   gap: 8px;
   flex-wrap: wrap;
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: 14px;
   margin: 0 0 8px;
 }
 
@@ -582,7 +588,7 @@ a.pager-num:hover { border-color: var(--rule); background: var(--card); color: v
 
 .pager-summary {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--ink-faint);
   margin: 0 0 30px;
 }
@@ -594,14 +600,14 @@ a.pager-num:hover { border-color: var(--rule); background: var(--card); color: v
 .field label {
   display: block;
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: 13.5px;
   color: var(--ink-soft);
   margin-bottom: 6px;
 }
 
 input[type="date"], input[type="text"] {
   font-family: var(--mono);
-  font-size: 14px;
+  font-size: 15px;
   border: 1px solid var(--rule);
   background: var(--card);
   padding: 7px 9px;
@@ -611,12 +617,12 @@ input[type="date"], input[type="text"] {
 textarea.editor {
   display: block;
   width: 100%;
-  /* Fill the window below the top bar; the page scrolls only for
-     attachments underneath. */
-  height: calc(100vh - 190px);
-  min-height: 420px;
+  /* Most of the window below the top bar, leaving the Attachments
+     heading and its "drop a file" hint in view underneath. */
+  height: calc(100vh - 300px);
+  min-height: 360px;
   font-family: var(--mono);
-  font-size: 14.5px;
+  font-size: 15.5px;
   line-height: 1.55;
   border: 1px solid var(--rule);
   background: var(--card);
@@ -632,7 +638,7 @@ textarea.editor:focus, input:focus, button:focus, a:focus {
 
 .btn {
   font-family: var(--mono);
-  font-size: 13.5px;
+  font-size: 14.5px;
   border: 1px solid var(--ink);
   background: var(--ink);
   color: var(--card);
@@ -646,7 +652,7 @@ a.btn, a.btn-quiet { display: inline-block; text-decoration: none; }
 
 .btn-quiet {
   font-family: var(--mono);
-  font-size: 13.5px;
+  font-size: 14.5px;
   border: 1px solid var(--rule);
   background: var(--card);
   color: var(--ink-soft);
@@ -665,7 +671,7 @@ a.btn, a.btn-quiet { display: inline-block; text-decoration: none; }
 
 .label-picker button {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: 13px;
   border: 1px solid var(--rule);
   background: var(--label-bg);
   color: var(--label-fg);
@@ -677,7 +683,7 @@ a.btn, a.btn-quiet { display: inline-block; text-decoration: none; }
 
 .shortcut-hint {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--ink-faint);
   margin: 10px 0 0;
   text-align: center;
@@ -685,7 +691,7 @@ a.btn, a.btn-quiet { display: inline-block; text-decoration: none; }
 
 kbd {
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: 12.5px;
   border: 1px solid var(--rule);
   border-bottom-width: 2px;
   background: var(--card);
@@ -702,7 +708,7 @@ kbd {
   justify-content: space-between;
   gap: 10px;
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: 14px;
   border: 1px solid var(--rule);
   background: var(--card);
   padding: 8px 11px;
@@ -713,7 +719,7 @@ kbd {
 .attachment-row form { margin: 0; }
 .attachment-row button {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: 13px;
   border: 1px solid var(--rule);
   background: none;
   color: var(--danger);
@@ -730,7 +736,7 @@ kbd {
   align-items: center;
   flex-wrap: wrap;
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: 14px;
   margin-bottom: 12px;
   color: var(--ink-soft);
 }
@@ -739,7 +745,7 @@ kbd {
   display: flex;
   gap: 18px;
   margin-left: auto;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 /* Swatches match how the graph actually draws each thing. */
@@ -748,7 +754,7 @@ kbd {
 .legend-ghost { border: 1.5px dashed var(--danger); }
 .legend-broken { width: 18px; height: 0; border-top: 2px dashed var(--danger); background: none; }
 
-.graph-hint { font-size: 12px; color: var(--ink-faint); }
+.graph-hint { font-size: 13px; color: var(--ink-faint); }
 
 .graph-tip {
   position: fixed;
@@ -756,7 +762,7 @@ kbd {
   pointer-events: none;
   max-width: 320px;
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: 13.5px;
   background: var(--ink);
   color: var(--card);
   padding: 5px 9px;
@@ -783,7 +789,7 @@ kbd {
   border-top: none;
   padding: 10px 14px;
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: 14px;
   background: var(--card);
 }
 .trash-list { border-top: 1px solid var(--rule); margin-bottom: 24px; }
@@ -791,7 +797,7 @@ kbd {
 
 .hint {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--ink-faint);
   margin-top: 10px;
 }
@@ -802,12 +808,11 @@ kbd {
 .attachment-status {
   margin-left: 12px;
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: 13.5px;
   color: var(--ink-soft);
 }
 .attachment-status.error { color: var(--danger); }
-.attachment-row button:disabled,
-#attachment-upload button:disabled { opacity: 0.5; cursor: default; }
+.attachment-row button:disabled { opacity: 0.5; cursor: default; }
 
 /* ---- history -------------------------------------------------------- */
 
@@ -817,7 +822,7 @@ kbd {
 
 .history-day {
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   color: var(--ink-soft);
   margin: 0 0 8px;
@@ -839,7 +844,7 @@ kbd {
 
 .history-time {
   font-family: var(--mono);
-  font-size: 12.5px;
+  font-size: 13.5px;
   color: var(--ink-faint);
   padding-top: 2px;
   text-align: right;
@@ -865,7 +870,7 @@ a.history-note:hover { color: var(--accent); text-decoration: underline; text-un
 
 .history-flag {
   font-family: var(--mono);
-  font-size: 11.5px;
+  font-size: 12.5px;
   color: var(--danger);
   margin-left: 6px;
 }
@@ -878,7 +883,7 @@ a.history-note:hover { color: var(--accent); text-decoration: underline; text-un
 }
 .history-changes .change {
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--ink-soft);
   border: 1px solid var(--rule);
   background: var(--card);
@@ -894,8 +899,6 @@ a.history-note:hover { color: var(--accent); text-decoration: underline; text-un
 .mode-edit .view-only,
 .is-new .not-new { display: none; }
 
-/* The editor gets the full main column; View keeps the reading width. */
-.mode-edit .main { max-width: none; }
 
 /* A two-position switch with a sliding thumb. The thumb's position comes
    from the body's mode class, so it moves whenever the mode changes --
@@ -908,7 +911,7 @@ a.history-note:hover { color: var(--accent); text-decoration: underline; text-un
   background: var(--card);
   margin: 4px 0 18px;
   font-family: var(--mono);
-  font-size: 13px;
+  font-size: 14px;
 }
 .mode-switch::before {
   content: "";
@@ -942,7 +945,7 @@ a.history-note:hover { color: var(--accent); text-decoration: underline; text-un
   min-height: 1.4em;
   margin: 10px 0 0;
   font-family: var(--mono);
-  font-size: 12px;
+  font-size: 13px;
   color: var(--ink-faint);
   text-align: center;
 }
@@ -969,3 +972,47 @@ a.history-note:hover { color: var(--accent); text-decoration: underline; text-un
   0%, 35% { background: var(--label-bg); box-shadow: inset 4px 0 0 var(--accent); }
   100%    { background: var(--card); box-shadow: inset 4px 0 0 transparent; }
 }
+
+/* ---- attaching by drag and drop (edit mode) -------------------------- */
+
+.drop-hint {
+  font-family: var(--mono);
+  font-size: 14px;
+  color: var(--ink-soft);
+  margin: 10px 0 0;
+}
+.drop-hint .attachment-status { margin-left: 10px; }
+
+/* Shown over the whole window while a file is dragged over it. */
+.drop-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(38, 65, 92, 0.12);
+  pointer-events: none;   /* the drop lands on the page underneath */
+}
+.drop-overlay[hidden] { display: none; }
+.drop-overlay-box {
+  border: 2px dashed var(--accent);
+  background: var(--card);
+  padding: 28px 44px;
+  text-align: center;
+}
+.drop-overlay-title {
+  font-family: var(--serif);
+  font-size: 25px;
+  font-weight: 600;
+  margin: 0 0 6px;
+  color: var(--ink);
+}
+.drop-overlay-text {
+  font-family: var(--mono);
+  font-size: 14px;
+  color: var(--ink-soft);
+  margin: 0;
+}
+.drop-overlay.refuse { background: rgba(168, 59, 45, 0.08); }
+.drop-overlay.refuse .drop-overlay-box { border-color: var(--danger); }

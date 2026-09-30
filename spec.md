@@ -134,7 +134,7 @@ views is itself searchable or label-filterable — only the main feed is.
 
 A two-column desktop layout under a full-width top bar:
 
-- **Left sidebar** (240px, sticky — it stays in view while the page
+- **Left sidebar** (270px, sticky — it stays in view while the page
   scrolls, and scrolls on its own if it's taller than the window). Its
   contents depend on the page:
   - Feed: the search box and the label list (§6.4).
@@ -144,17 +144,24 @@ A two-column desktop layout under a full-width top bar:
     its date and line count, in Edit the date picker, Save / Done /
     Cancel, save status, shortcut hint and labels; View graph and Delete
     in both (§4.3).
-- **Main column**: capped at a 760px reading width (about 75
-  characters of note text per line), left-aligned next to the sidebar.
-  Because every list page uses the same grid, switching between Feed,
-  Orphans and Attachments never moves the list sideways. Edit mode lifts
-  the cap to use the full remaining width.
+- **Main column**: all the width beside the sidebar — cards, lists,
+  headings and the editor use it fully. Only **paragraphs of note text**
+  stop at about 100 characters (`--prose-measure: 100ch`), since much
+  longer lines get hard to read; on a narrower window they simply wrap
+  sooner. (This replaced an earlier fixed 760px reading column, which
+  left most of a desktop monitor empty.) Because every list page uses
+  the same grid, switching between Feed, Orphans and Attachments never
+  moves the list sideways.
+- **Type**: 18px body text (serif), with every other size one step up
+  from the original design to suit desktop reading distance.
 - **Graph**: no sidebar; the graph takes the full window width and
   height below the top bar (§10).
-- The top bar and the content share one centered app width (1240px), so
-  the wordmark lines up with the sidebar and the nav never shifts
-  between pages — including the graph, whose content alone breaks out to
-  full width.
+- The top bar and the content share one app width — the whole window
+  up to 1760px, with 40px margins, centered beyond that — so the
+  wordmark lines up with the sidebar and the nav never shifts between
+  pages, including the graph, whose content alone breaks out to full
+  width. At 1870px wide the main column is about 1,360px; at 1440px,
+  about 1,040px.
 
 ### 4.2 Pagination
 
@@ -390,7 +397,7 @@ Context rules:
   renderer splits blocks: a paragraph, a single list item, a single
   header line, or a run of blockquote lines. A link in one bullet shows
   that bullet, not the whole list.
-- The passage is trimmed to about 160 characters centered on the link,
+- The passage is trimmed to about 240 characters centered on the link,
   breaking at word boundaries, with `…` where text was cut. If one side
   of the link is short, the other side gets its unused space.
 - Deliberately **not** sentence-based: sentence splitting is unreliable
@@ -506,14 +513,33 @@ problem at this app's scale; see §12).
 No inline image markdown — `![]()` is not part of the supported subset
 (§5). Attachments render as a plain list (filename + size) below a
 note's body on both the standalone view and the inline feed expansion,
-and as an editable list (with Remove) on the edit page, plus an upload
-form. This was a deliberate simplification: attachments are metadata
-about a note, not part of its markdown content.
+and as an editable list (with Remove) under the editor in Edit mode.
+This was a deliberate simplification: attachments are metadata about a
+note, not part of its markdown content.
 
-On the edit page, uploading and removing happen **in place, without
-reloading the page**, so unsaved text in the editor is never lost:
+**Attaching is by drag and drop**: in Edit mode, drop one or more files
+anywhere on the page. There is no file picker or upload button (removed
+in favor of dropping); the Attachments section just says "Drop a file
+anywhere on the page to attach it."
 
-- The browser sends the form with `fetch` and an `X-Requested-With:
+- While a file is dragged over the window, an overlay says what dropping
+  will do: "Drop to attach to No. 12", or why it won't — "Switch to Edit
+  to attach files" in View mode, "Save the note first" on a new note that
+  hasn't been saved. A refused drop leaves that explanation up for a
+  couple of seconds, since View has no status line.
+- The browser's own reaction to a dropped file — opening it in place of
+  the page, which would lose unsaved text — is always cancelled on the
+  note page, in either mode.
+- Only drags that carry files count; dragging selected text within the
+  editor behaves normally.
+- Several files dropped together upload one after another, with
+  progress ("Uploading data.csv (2 of 3)…") and one summary at the end
+  ("Attached 3 files.", or each problem by name).
+
+Uploading and removing happen **in place, without reloading the page**,
+so unsaved text in the editor is never lost:
+
+- The browser sends the file with `fetch` and an `X-Requested-With:
   fetch` header. The server does the same work as for a plain form
   submit, but answers with JSON — `ok`, a `message`, and the freshly
   rendered attachment list (`_attachments_edit.html`) — which the page
@@ -522,15 +548,18 @@ reloading the page**, so unsaved text in the editor is never lost:
 - Attaching a file never saves the note's text; the two are
   independent. (Saving first was considered and rejected: it would store
   half-finished text every time a file is attached.)
-- Result messages appear next to the upload button: "Attached
+- Result messages appear on the "drop a file" line: "Attached
   figure-3.png.", "Removed dataset.csv from this note.", "figure-3.png
   is already attached." (same bytes uploaded to the same note again), or
   an error. When the uploaded bytes already exist under another name,
   the message and list use the stored name, since dedup (§9.1) reuses
   the existing file.
 - Files over the upload limit (`MAX_CONTENT_LENGTH`, 50 MB) are rejected
-  in the browser before uploading, naming the limit; the server enforces
-  the same limit (413) in case the browser check is bypassed.
+  in the browser before uploading, naming the file and the limit; other
+  files in the same drop still upload. The server enforces the same
+  limit (413) in case the browser check is bypassed.
+- Each upload also returns a fresh View pane, so flipping to View shows
+  the new attachment list even if the text wasn't changed.
 - A new, never-saved note has no attachment section — the note needs an
   id first. Its sort date defaults to today (local time).
 

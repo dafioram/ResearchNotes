@@ -402,7 +402,7 @@ def _clip_after(s: str, n: int) -> tuple[str, bool]:
     return cut, True
 
 
-def ref_contexts(body: str, target_id: int, width: int = 160) -> list[dict]:
+def ref_contexts(body: str, target_id: int, width: int = 240) -> list[dict]:
     """Every mention of [[target_id]] in `body`, each as the plain-text
     passage around it, trimmed to about `width` characters centered on the
     link. Returns dicts with `before`, `ref`, `after`, and `clipped_before`

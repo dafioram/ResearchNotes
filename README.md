@@ -27,9 +27,10 @@ in [spec.md](spec.md).
   those at the top, ahead of the ordinary text matches. Combines with the
   label filter below. The Orphans view uses the same expandable-card feed
   component as the main feed (but isn't itself searched or filtered).
-- **Desktop layout**: a sticky left sidebar (search and labels on the
-  feed; page details and actions elsewhere) beside a reading-width main
-  column.
+- **Desktop layout** that uses the width of the window (up to 1760px): a
+  sticky left sidebar (search and labels on the feed; page details and
+  actions elsewhere) beside a main column that takes the rest. Paragraphs
+  of note text wrap at about 100 characters to stay readable.
 - **One page per note** with a **View / Edit switch** that never leaves
   the page. View renders the note; Edit is the raw markdown in a plain
   textarea that fills the window, with the date, buttons and label picker
@@ -78,8 +79,9 @@ in [spec.md](spec.md).
   by SHA-256 hash so identical files are only stored once -- uploading the
   same file to a second note links it instead of duplicating storage, no
   separate "attach an existing file" picker needed. No inline image
-  markdown -- attachments show as a plain list on the note. On the edit
-  page, adding or removing a file happens in place, without reloading,
+  markdown -- attachments show as a plain list on the note. To attach,
+  drop files anywhere on the note while editing (several at once is
+  fine); adding or removing a file happens in place, without reloading,
   so unsaved text is never lost.
 - Structure notes / MOCs and Folgezettel-style numbering are intentionally
   **not** special-cased -- a structure note is just an ordinary note whose
