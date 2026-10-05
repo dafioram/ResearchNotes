@@ -213,21 +213,6 @@ def test_attach_and_remove_logged_with_filename(app, client, clock):
     assert evs[1]["detail"] == {"filename": "fig.png"}
 
 
-def test_backfill_for_notes_that_predate_the_log(app):
-    with app.app_context():
-        db = dbmod.get_db()
-        db.execute("INSERT INTO notes (body, sort_date, created_at, updated_at) VALUES "
-                   "('old', '2025-01-01', '2025-01-01T09:00:00+00:00', '2025-01-01T09:00:00+00:00')")
-        db.execute("INSERT INTO notes (body, sort_date, created_at, updated_at, deleted_at) VALUES "
-                   "('gone', '2025-02-01', '2025-02-01T09:00:00+00:00', '2025-02-01T09:00:00+00:00', "
-                   "'2025-03-01T09:00:00+00:00')")
-        db.commit()
-        dbmod.init_db(app)  # what happens at the next startup
-        dbmod.init_db(app)  # and the one after: no duplicates
-    kinds = [(e["note_id"], e["kind"], e["updated_at"][:10]) for e in events(app)]
-    assert kinds == [(1, "created", "2025-01-01"), (2, "created", "2025-02-01"), (2, "deleted", "2025-03-01")]
-
-
 # ---------------------------------------------------------------------
 # History page
 # ---------------------------------------------------------------------

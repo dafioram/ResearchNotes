@@ -1087,7 +1087,7 @@ def test_new_note_form_defaults_to_today(client, app):
 
 
 # ---------------------------------------------------------------------
-# Label storage: one table, and migrating from the old two-table shape
+# Label storage: one table
 # ---------------------------------------------------------------------
 
 def _label_rows(app):
@@ -1110,61 +1110,3 @@ def test_label_disappears_when_last_use_removed(app):
         dbmod.update_note(n, "# A\nnothing", "2026-01-01")
         assert dbmod.get_labels_with_counts() == []
     assert _label_rows(app) == []
-
-
-def _make_old_shape_db(path):
-    """A database as the previous release left it: labels + note_labels(label_id)."""
-    import sqlite3
-    conn = sqlite3.connect(path)
-    conn.executescript("""
-        CREATE TABLE notes (id INTEGER PRIMARY KEY AUTOINCREMENT, body TEXT NOT NULL DEFAULT '',
-            sort_date TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, deleted_at TEXT);
-        CREATE TABLE labels (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE COLLATE NOCASE);
-        CREATE TABLE note_labels (note_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
-            label_id INTEGER NOT NULL REFERENCES labels(id) ON DELETE CASCADE, PRIMARY KEY (note_id, label_id));
-        CREATE INDEX idx_note_labels_label ON note_labels (label_id);
-        INSERT INTO notes (body, sort_date, created_at, updated_at) VALUES
-            ('# One #memory #Learning', '2026-01-01', '2026-01-01T00:00:00+00:00', '2026-01-01T00:00:00+00:00'),
-            ('# Two #memory', '2026-01-02', '2026-01-02T00:00:00+00:00', '2026-01-02T00:00:00+00:00');
-        INSERT INTO notes (body, sort_date, created_at, updated_at, deleted_at) VALUES
-            ('# Gone #old', '2026-01-03', '2026-01-03T00:00:00+00:00', '2026-01-03T00:00:00+00:00', '2026-01-04T00:00:00+00:00');
-        INSERT INTO labels (name) VALUES ('memory'), ('learning'), ('old');
-        INSERT INTO note_labels VALUES (1, 1), (1, 2), (2, 1), (3, 3);
-    """)
-    conn.commit()
-    conn.close()
-
-
-def test_old_two_table_database_is_migrated(tmp_path):
-    from app import create_app
-    db_path = tmp_path / "old.db"
-    _make_old_shape_db(db_path)
-    cfg = {"TESTING": True, "DATABASE_PATH": str(db_path), "UPLOAD_DIR": str(tmp_path / "u")}
-    app = create_app(cfg)
-    create_app(cfg)  # second startup: no change
-    with app.app_context():
-        conn = dbmod.get_db()
-        assert conn.execute("SELECT name FROM sqlite_master WHERE name = 'labels'").fetchone() is None
-        assert _label_rows(app) == [(1, "learning"), (1, "memory"), (2, "memory"), (3, "old")]
-        assert [tuple(r) for r in dbmod.get_labels_with_counts()] == [("memory", 2), ("learning", 1)]
-        assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
-    assert b"#learning" in app.test_client().get("/").data
-
-
-def test_interrupted_migration_is_repaired_on_next_startup(tmp_path):
-    """Old tables dropped but the refill never ran (e.g. the app was killed):
-    note_labels exists in the new shape but is empty. The next startup
-    refills it from the note text."""
-    import sqlite3
-    from app import create_app
-    db_path = tmp_path / "half.db"
-    _make_old_shape_db(db_path)
-    conn = sqlite3.connect(db_path)
-    conn.executescript("""
-        DROP TABLE note_labels; DROP TABLE labels;
-        CREATE TABLE note_labels (note_id INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
-            name TEXT NOT NULL COLLATE NOCASE, PRIMARY KEY (note_id, name));
-    """)
-    conn.close()
-    app = create_app({"TESTING": True, "DATABASE_PATH": str(db_path), "UPLOAD_DIR": str(tmp_path / "u")})
-    assert _label_rows(app) == [(1, "learning"), (1, "memory"), (2, "memory"), (3, "old")]

@@ -1,10 +1,12 @@
 import json
 import sqlite3
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 import click
 from flask import current_app, g
+from flask.cli import with_appcontext
 
 from . import activity
 from . import markdown as md
@@ -33,52 +35,21 @@ def close_db(e=None):
 
 
 def init_db(app):
+    """Create whatever tables are missing. Runs at every startup, so it
+    must stay cheap: it never reads or rewrites existing data (spec §13)."""
     db_path = Path(app.config["DATABASE_PATH"])
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
-    _migrate_label_tables(conn)
     conn.execute("PRAGMA foreign_keys = ON")
     schema_path = Path(app.root_path).parent / "schema.sql"
     with open(schema_path, "r") as f:
         conn.executescript(f.read())
     conn.commit()
-    _rebuild_label_index_if_missing(conn)
     conn.close()
 
     app.teardown_appcontext(close_db)
     app.cli.add_command(init_db_command)
-
-
-def _migrate_label_tables(conn: sqlite3.Connection) -> None:
-    """Older databases stored labels in two tables: labels(id, name) and
-    note_labels(note_id, label_id). Both are only an index of the #labels
-    written in note text, so rather than converting rows, drop them; the
-    schema then creates the one-table note_labels(note_id, name) and
-    _rebuild_label_index_if_missing() refills it from the note text."""
-    columns = {r["name"] for r in conn.execute("PRAGMA table_info(note_labels)")}
-    if "label_id" not in columns:
-        return
-    conn.execute("PRAGMA foreign_keys = OFF")
-    conn.executescript("DROP TABLE note_labels; DROP TABLE IF EXISTS labels;")
-
-
-def _rebuild_label_index_if_missing(conn: sqlite3.Connection) -> None:
-    """Refill note_labels from note text when it's empty but notes exist.
-    Runs after the migration above, and also repairs a migration that was
-    interrupted between dropping the old tables and refilling -- the check
-    looks at the data, not at whether a migration just happened. Deleted
-    notes are included, as on save, so restoring one brings its labels
-    back. A database that simply has no labels anywhere costs one quick
-    pass over the notes at startup."""
-    if conn.execute("SELECT 1 FROM note_labels LIMIT 1").fetchone():
-        return
-    rows = conn.execute("SELECT id, body FROM notes").fetchall()
-    with conn:  # one transaction
-        conn.executemany(
-            "INSERT OR IGNORE INTO note_labels (note_id, name) VALUES (?, ?)",
-            [(r["id"], name) for r in rows for name in md.extract_labels(r["body"])],
-        )
+    app.cli.add_command(reindex_command)
 
 
 @click.command("init-db")
@@ -86,6 +57,21 @@ def init_db_command():
     """Initialize the database (safe to re-run; only creates missing tables)."""
     init_db(current_app)
     click.echo("Database initialized.")
+
+
+@click.command("reindex")
+@click.option("--vacuum", is_flag=True,
+              help="Then compact the database file (rewrites all of it, once).")
+@with_appcontext
+def reindex_command(vacuum):
+    """Rebuild labels, links and the search index from the notes' text."""
+    started = time.perf_counter()
+    count = reindex()
+    click.echo(f"Rebuilt labels, links and the search index for {count} "
+               f"note{'' if count == 1 else 's'} in {time.perf_counter() - started:.1f} s.")
+    if vacuum:
+        get_db().execute("VACUUM")
+        click.echo("Compacted the database file.")
 
 
 def now_iso() -> str:
@@ -397,6 +383,31 @@ def _sync_note_metadata(note_id: int, body: str) -> None:
             "DELETE FROM note_links WHERE from_note_id = ? AND to_note_id = ?",
             (note_id, rid),
         )
+
+
+def reindex() -> int:
+    """Rebuild everything derived from note text -- labels, links and the
+    search index -- from scratch, in one transaction, and return how many
+    notes there are. Saving keeps all of it current, so nothing calls this
+    automatically; it's `flask reindex`, for after the rules for reading
+    labels or links change, or to compact a search index that has grown."""
+    db = get_db()
+    rows = db.execute("SELECT id, body FROM notes").fetchall()
+    with db:
+        db.execute("DELETE FROM note_labels")
+        db.execute("DELETE FROM note_links")
+        db.executemany(
+            "INSERT INTO note_labels (note_id, name) VALUES (?, ?)",
+            [(r["id"], name) for r in rows for name in md.extract_labels(r["body"])],
+        )
+        db.executemany(
+            "INSERT INTO note_links (from_note_id, to_note_id) VALUES (?, ?)",
+            [(r["id"], ref) for r in rows for ref in md.extract_note_refs(r["body"])],
+        )
+        # FTS5's own rebuild from the notes table, which also resets the
+        # index's statistics.
+        db.execute("INSERT INTO notes_fts (notes_fts) VALUES ('rebuild')")
+    return len(rows)
 
 
 def get_labels_with_counts():

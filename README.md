@@ -166,11 +166,26 @@ on that network to reach the app (details in spec §14):
   public domain name, add the name to `ALLOWED_HOSTS` in `.env`
   (comma-separated; `.example.com` allows every name under it).
 
+## Rebuilding labels, links and search
+
+All three are derived from the notes' text and kept current as you
+save; startup never touches them. To rebuild them from scratch, for
+example after an update that changes how labels are read:
+
+```bash
+flask --app app reindex                                      # plain Python, from this folder
+docker compose exec research-notes flask --app app reindex   # Docker
+```
+
+Add `--vacuum` to also compact the database file afterwards. That
+rewrites the whole file once, so a deduplicating backup copies it in
+full that one time.
+
 ## Project layout
 
 ```
 run.py              standalone launcher (reads .env, starts the server)
-schema.sql          SQLite schema, applied at every startup (idempotent)
+schema.sql          SQLite schema; startup creates whatever's missing, nothing more
 spec.md             design record: what the app does and why
 app/
   __init__.py       Flask app factory
