@@ -45,8 +45,8 @@ in [spec.md](spec.md).
   of note text wrap at about 100 characters to stay readable.
 - **One page per note** with a **View / Edit switch** that never leaves
   the page. View renders the note; Edit is the raw markdown in a plain
-  textarea that fills the window, with the date, buttons and label picker
-  in the sidebar. **Save** / **Ctrl+S** (⌘S on a Mac) save and keep you
+  textarea that fills the window, with the date and buttons in the
+  sidebar. **Save** / **Ctrl+S** (⌘S on a Mac) save and keep you
   editing; **Done** (or flipping to View) saves and shows View; **Cancel**
   discards. Leaving with unsaved changes asks first. Links to a note open
   it in View; the feed's Edit button opens it in Edit.
@@ -60,7 +60,9 @@ in [spec.md](spec.md).
   `.`, `-` or `_`; trailing `.`, `-` and `_` aren't included, so
   "about #physics." is `#physics`. `#3`, `C#` and URL fragments aren't
   labels. (`#label` needs no space; a header needs one, e.g. `# Title`;
-  `##nospace` is inert -- neither a header nor a label.)
+  `##nospace` is inert -- neither a header nor a label.) Typing `#` and a
+  letter in the editor suggests the labels you already use, most-used
+  first; Tab or Enter completes one.
 - **`[[note-number]]`** references to other notes, from anywhere in the
   text. You don't need to know the number: typing `[[` in the editor
   lists notes as you type a few words of a title (or a number), and

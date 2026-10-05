@@ -493,7 +493,7 @@ a:hover { color: var(--ink); }
   cursor: help;
 }
 
-/* ---- the editor's [[ pop-up (app.js) ---- */
+/* ---- the editor's suggestions for [[links and #labels (app.js) ---- */
 .ref-popup {
   position: fixed;
   z-index: 50;
@@ -523,6 +523,8 @@ a:hover { color: var(--ink); }
 .ref-option.active .ref-option-id, .ref-option.active .ref-option-date { color: var(--rule); }
 .ref-option-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ref-option-later .ref-option-id { color: var(--label-fg); }
+.ref-option-label { font-family: var(--mono); font-size: 0.9em; color: var(--label-fg); }
+.ref-option.active .ref-option-label { color: var(--label-bg); }
 .ref-option-later .ref-option-title { font-family: var(--mono); font-size: 0.9em; }
 .ref-empty { padding: 6px 10px; color: var(--ink-soft); font-style: italic; border-bottom: 1px solid var(--rule-soft); }
 
@@ -734,25 +736,6 @@ a.btn, a.btn-quiet { display: inline-block; text-decoration: none; }
   text-decoration: none;
 }
 .btn-quiet:hover { border-color: var(--ink); color: var(--ink); }
-
-.label-picker {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 8px;
-}
-
-.label-picker button {
-  font-family: var(--mono);
-  font-size: 13px;
-  border: 1px solid var(--rule);
-  background: var(--label-bg);
-  color: var(--label-fg);
-  padding: 3px 7px;
-  cursor: pointer;
-}
-.label-picker button:hover { background: var(--ink); color: var(--card); border-color: var(--ink); }
-.label-picker button .count { opacity: 0.6; }
 
 .shortcut-hint {
   font-family: var(--mono);

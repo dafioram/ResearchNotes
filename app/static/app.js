@@ -1,7 +1,7 @@
 /*
  * The note page (note.html): View / Edit switch, saving in place, Done and
- * Cancel, the unsaved-changes guard, the label picker, the [[ link
- * pop-up and attachments.
+ * Cancel, the unsaved-changes guard, suggestions for [[links and
+ * #labels while typing, and attachments.
  *
  * Saving never leaves the page. Save and Ctrl+S save and keep editing;
  * Done, and flipping the switch to View, save and then show View. On a
@@ -151,6 +151,7 @@
     if (metaLines) metaLines.textContent = data.line_count + " line" + (data.line_count === 1 ? "" : "s");
     state.feedUrl = data.feed_url;
     setGraphEnabled(data.has_connections);
+    labelsPromise = null;  // the save may have added labels
   }
 
   // The first save of a new note: it now has an id, so the page turns into
@@ -241,64 +242,63 @@
   });
 
   // ------------------------------------------------------------------
-  // Label picker: insert #label at the cursor
-  // ------------------------------------------------------------------
-
-  document.querySelectorAll(".label-picker button[data-label]").forEach(function (btn) {
-    btn.addEventListener("click", function () {
-      var insertion = "#" + btn.getAttribute("data-label") + " ";
-      var start = textarea.selectionStart;
-      var end = textarea.selectionEnd;
-      var before = textarea.value.slice(0, start);
-      var after = textarea.value.slice(end);
-      var text = (before.length > 0 && !/\s$/.test(before) ? " " : "") + insertion;
-      textarea.value = before + text + after;
-      var cursor = start + text.length;
-      textarea.focus();
-      textarea.setSelectionRange(cursor, cursor);
-      refreshStatus();
-    });
-  });
-
-  // ------------------------------------------------------------------
-  // [[ links: typing [[ lists notes to link to (spec §6.2). Words search
+  // Suggestions while typing, in one pop-up under the cursor:
+  //
+  // [[ links (spec §6.2): typing [[ lists notes to link to. Words search
   // titles and text, a number matches note numbers, nothing typed shows
   // the latest notes. Picking one inserts [[id]]; the last choice is
   // always "link later", which inserts [[later]] (with what was typed as
-  // its hint). Up/Down choose, Enter or Tab pick, Escape closes.
+  // its hint).
+  //
+  // #labels (spec §6.1): typing # and a letter where a label can start
+  // lists the labels in use that match -- same name first, then names
+  // starting with it, then names containing it, most-used first within
+  // each. Picking one completes it. Enter on a label that's already
+  // typed in full just starts a new line.
+  //
+  // Up/Down choose, Enter or Tab pick, Escape closes until the next one.
   // ------------------------------------------------------------------
 
   var REF_TRIGGER = /\[\[([^\[\]\n]{0,80})$/;
+  // The label rule's start (§6.1): line start or whitespace, '#', a letter.
+  var LABEL_TRIGGER = /(?:^|\s)#(\p{L}[\p{L}\p{N}_.\-]{0,80})$/u;
+  var LABEL_CHARS = /^[\p{L}\p{N}_.\-]*/u;
+  var LABEL_LIMIT = 8;
+
   var popup = document.createElement("div");
   popup.className = "ref-popup";
   popup.id = "ref-popup";
   popup.setAttribute("role", "listbox");
-  popup.setAttribute("aria-label", "Notes to link");
   popup.hidden = true;
   document.body.appendChild(popup);
   textarea.setAttribute("aria-autocomplete", "list");
   textarea.setAttribute("aria-controls", "ref-popup");
 
   var lookup = {
-    start: -1,        // where the [[ being completed starts
+    kind: null,       // "ref" or "label"
+    start: -1,        // where the [[ or # being completed starts
     query: null,      // what's typed after it
-    items: [],        // {insert, el}
+    items: [],        // {insert, el, exact}
     active: 0,
-    dismissed: -1,    // Escape closes the list for this [[ only
+    dismissed: -1,    // Escape closes the list for this [[ or # only
     seq: 0,           // drops replies to older keystrokes
     timer: null,
   };
 
-  function refContext() {
+  function completionContext() {
     if (textarea.selectionStart !== textarea.selectionEnd) return null;
     var caret = textarea.selectionStart;
-    var m = REF_TRIGGER.exec(textarea.value.slice(0, caret));
-    if (!m) return null;
-    return { start: caret - m[0].length, end: caret, query: m[1] };
+    var before = textarea.value.slice(0, caret);
+    var m = REF_TRIGGER.exec(before);
+    if (m) return { kind: "ref", start: caret - m[0].length, end: caret, query: m[1] };
+    m = LABEL_TRIGGER.exec(before);
+    if (m) return { kind: "label", start: caret - m[1].length - 1, end: caret, query: m[1] };
+    return null;
   }
 
   function closeLookup() {
     popup.hidden = true;
+    lookup.kind = null;
     lookup.start = -1;
     lookup.query = null;
     lookup.items = [];
@@ -307,17 +307,70 @@
   }
 
   function updateLookup() {
-    var ctx = mode() === "edit" ? refContext() : null;
+    var ctx = mode() === "edit" ? completionContext() : null;
     if (!ctx) lookup.dismissed = -1;
     if (!ctx || ctx.start === lookup.dismissed) { closeLookup(); return; }
-    if (ctx.start === lookup.start && ctx.query === lookup.query) return;
+    if (ctx.kind === lookup.kind && ctx.start === lookup.start && ctx.query === lookup.query) return;
+    lookup.kind = ctx.kind;
     lookup.start = ctx.start;
     lookup.query = ctx.query;
     clearTimeout(lookup.timer);
-    lookup.timer = setTimeout(function () { fetchLookup(ctx.query); }, 120);
+    if (ctx.kind === "label") {
+      var seq = ++lookup.seq;
+      loadLabels().then(function (labels) {
+        if (seq === lookup.seq) showLabels(ctx.query, labels);
+      });
+    } else {
+      lookup.timer = setTimeout(function () { fetchNotes(ctx.query); }, 120);
+    }
   }
 
-  function fetchLookup(query) {
+  // ---- #labels ----
+
+  // Fetched once, when first needed; a save may add labels, so it's
+  // fetched again after one (applySaved).
+  var labelsPromise = null;
+  function loadLabels() {
+    if (!labelsPromise) {
+      labelsPromise = fetch("/api/labels", { headers: { "X-Requested-With": "fetch" } })
+        .then(function (r) { return r.json(); })
+        .then(function (data) { return data.labels || []; })
+        .catch(function () { labelsPromise = null; return []; });
+    }
+    return labelsPromise;
+  }
+
+  function matchLabels(query, labels) {
+    var q = query.toLowerCase();
+    var exact = [], starts = [], contains = [];
+    labels.forEach(function (l) {   // already most-used first
+      if (l.name === q) exact.push(l);
+      else if (l.name.indexOf(q) === 0) starts.push(l);
+      else if (l.name.indexOf(q) > 0) contains.push(l);
+    });
+    return exact.concat(starts, contains).slice(0, LABEL_LIMIT);
+  }
+
+  function showLabels(query, labels) {
+    var found = matchLabels(query, labels);
+    if (!found.length) { popup.hidden = true; lookup.items = []; return; }  // a new label
+    popup.textContent = "";
+    popup.setAttribute("aria-label", "Labels");
+    lookup.items = [];
+    found.forEach(function (l) {
+      var el = option(lookup.items.length, [
+        ["ref-option-title ref-option-label", "#" + l.name],
+        ["ref-option-date", l.count + " note" + (l.count === 1 ? "" : "s")],
+      ]);
+      popup.appendChild(el);
+      lookup.items.push({ insert: "#" + l.name, el: el, exact: l.name === query.toLowerCase() });
+    });
+    openPopup();
+  }
+
+  // ---- [[ links ----
+
+  function fetchNotes(query) {
     var seq = ++lookup.seq;
     var url = "/api/notes/lookup?q=" + encodeURIComponent(query) +
       (state.noteId ? "&exclude=" + state.noteId : "");
@@ -325,9 +378,9 @@
       .then(function (r) { return r.json(); })
       .then(function (data) {
         if (seq !== lookup.seq || lookup.query !== query) return;
-        showLookup(query, data.notes || []);
+        showNotes(query, data.notes || []);
       })
-      .catch(function () { showLookup(query, []); });
+      .catch(function () { if (seq === lookup.seq) showNotes(query, []); });
   }
 
   function laterInsert(query) {
@@ -337,23 +390,9 @@
     return hint ? "[[later: " + hint + "]]" : "[[later]]";
   }
 
-  function option(index, parts) {
-    var el = document.createElement("div");
-    el.className = "ref-option";
-    el.id = "ref-option-" + index;
-    el.setAttribute("role", "option");
-    el.setAttribute("data-index", index);
-    parts.forEach(function (p) {
-      var span = document.createElement("span");
-      span.className = p[0];
-      span.textContent = p[1];
-      el.appendChild(span);
-    });
-    return el;
-  }
-
-  function showLookup(query, notes) {
+  function showNotes(query, notes) {
     popup.textContent = "";
+    popup.setAttribute("aria-label", "Notes to link");
     lookup.items = [];
     notes.forEach(function (n) {
       var el = option(lookup.items.length, [
@@ -378,6 +417,27 @@
     laterEl.classList.add("ref-option-later");
     popup.appendChild(laterEl);
     lookup.items.push({ insert: later, el: laterEl });
+    openPopup();
+  }
+
+  // ---- the pop-up ----
+
+  function option(index, parts) {
+    var el = document.createElement("div");
+    el.className = "ref-option";
+    el.id = "ref-option-" + index;
+    el.setAttribute("role", "option");
+    el.setAttribute("data-index", index);
+    parts.forEach(function (p) {
+      var span = document.createElement("span");
+      span.className = p[0];
+      span.textContent = p[1];
+      el.appendChild(span);
+    });
+    return el;
+  }
+
+  function openPopup() {
     setActive(0);
     popup.hidden = false;
     placePopup();
@@ -397,15 +457,20 @@
 
   function choose(i) {
     var item = lookup.items[i];
-    var ctx = refContext();
-    if (!item || !ctx) { closeLookup(); return; }
-    var end = ctx.end;
-    if (textarea.value.slice(end, end + 2) === "]]") end += 2;  // already closed
+    var ctx = completionContext();
+    if (!item || !ctx || ctx.kind !== lookup.kind) { closeLookup(); return; }
+    var text = textarea.value, end = ctx.end, insert = item.insert;
+    if (ctx.kind === "ref") {
+      if (text.slice(end, end + 2) === "]]") end += 2;  // already closed
+    } else {
+      end += LABEL_CHARS.exec(text.slice(end))[0].length;  // the rest of the word
+      if (!/^\s/.test(text.slice(end))) insert += " ";
+    }
     textarea.focus();
     textarea.setSelectionRange(ctx.start, end);
     // insertText keeps the editor's undo history; setRangeText is the fallback.
-    if (!document.execCommand("insertText", false, item.insert)) {
-      textarea.setRangeText(item.insert, ctx.start, end, "end");
+    if (!document.execCommand("insertText", false, insert)) {
+      textarea.setRangeText(insert, ctx.start, end, "end");
       refreshStatus();
     }
     closeLookup();
@@ -465,11 +530,15 @@
   window.addEventListener("resize", placePopup);
 
   textarea.addEventListener("keydown", function (e) {
-    if (popup.hidden) return;
+    if (popup.hidden || !lookup.items.length) return;
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
       setActive(lookup.active + (e.key === "ArrowDown" ? 1 : -1));
     } else if ((e.key === "Enter" || e.key === "Tab") && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      if (e.key === "Enter" && lookup.items[lookup.active].exact) {
+        closeLookup();  // the label is typed in full: Enter is a new line
+        return;
+      }
       e.preventDefault();
       choose(lookup.active);
     } else if (e.key === "Escape") {
