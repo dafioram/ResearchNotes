@@ -68,7 +68,8 @@ def reindex_command(vacuum):
     started = time.perf_counter()
     count = reindex()
     click.echo(f"Rebuilt labels, links and the search index for {count} "
-               f"note{'' if count == 1 else 's'} in {time.perf_counter() - started:.1f} s.")
+               f"note{'' if count == 1 else 's'} (Trash left out) "
+               f"in {time.perf_counter() - started:.1f} s.")
     if vacuum:
         get_db().execute("VACUUM")
         click.echo("Compacted the database file.")
@@ -275,12 +276,18 @@ def list_deleted_notes():
 
 
 def soft_delete_note(note_id: int) -> None:
+    """Move a note to Trash. Its labels, its links to other notes and its
+    search entry (by trigger) go with it, so nothing else has to check for
+    Trash; restoring re-reads them from its text. Links *to* it from other
+    notes stay, showing as ghosts meanwhile."""
     db = get_db()
     ts = now_iso()
     cur = db.execute(
         "UPDATE notes SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL", (ts, note_id)
     )
     if cur.rowcount:
+        db.execute("DELETE FROM note_labels WHERE note_id = ?", (note_id,))
+        db.execute("DELETE FROM note_links WHERE from_note_id = ?", (note_id,))
         _log_event("deleted", note_id, ts)
     db.commit()
 
@@ -291,6 +298,8 @@ def restore_note(note_id: int) -> None:
         "UPDATE notes SET deleted_at = NULL WHERE id = ? AND deleted_at IS NOT NULL", (note_id,)
     )
     if cur.rowcount:
+        body = db.execute("SELECT body FROM notes WHERE id = ?", (note_id,)).fetchone()["body"]
+        _sync_note_metadata(note_id, body)
         _log_event("restored", note_id, now_iso())
     db.commit()
 
@@ -320,28 +329,22 @@ def get_random_note_id():
 
 # A note is connected if it links out to anything (a missing or deleted
 # target still counts: the graph shows it as a ghost), or if a note that
-# isn't in Trash links to it. The Orphans list and the note page's
-# "View graph" button use this same rule.
-def _linked_from_live_note(note_id_sql: str) -> str:
-    """SQL that's true when a note not in Trash links to `note_id_sql`."""
-    return f"""EXISTS (
-        SELECT 1 FROM note_links l JOIN notes src ON src.id = l.from_note_id
-        WHERE l.to_note_id = {note_id_sql} AND src.deleted_at IS NULL)"""
-
-
-_ORPHANS_FROM = f"""
+# isn't in Trash links to it -- which is any row in note_links, since notes
+# in Trash have none. The Orphans list and the note page's "View graph"
+# button use this same rule.
+_ORPHANS_FROM = """
     FROM notes n
     WHERE n.deleted_at IS NULL
       AND NOT EXISTS (SELECT 1 FROM note_links WHERE from_note_id = n.id)
-      AND NOT {_linked_from_live_note("n.id")}
+      AND NOT EXISTS (SELECT 1 FROM note_links WHERE to_note_id = n.id)
 """
 
 
 def note_has_connections(note_id: int) -> bool:
     row = get_db().execute(
-        f"""
+        """
         SELECT EXISTS (SELECT 1 FROM note_links WHERE from_note_id = ?)
-            OR {_linked_from_live_note("?")} AS connected
+            OR EXISTS (SELECT 1 FROM note_links WHERE to_note_id = ?) AS connected
         """,
         (note_id, note_id),
     ).fetchone()
@@ -440,12 +443,13 @@ def _sync_note_metadata(note_id: int, body: str) -> None:
 
 def reindex() -> int:
     """Rebuild everything derived from note text -- labels, links and the
-    search index -- from scratch, in one transaction, and return how many
-    notes there are. Saving keeps all of it current, so nothing calls this
-    automatically; it's `flask reindex`, for after the rules for reading
-    labels or links change, or to compact a search index that has grown."""
+    search index -- from scratch for every note not in Trash, in one
+    transaction, and return how many notes that is. Saving keeps all of it
+    current, so nothing calls this automatically; it's `flask reindex`, for
+    after the rules for reading labels or links change, or to compact a
+    search index that has grown."""
     db = get_db()
-    rows = db.execute("SELECT id, body FROM notes").fetchall()
+    rows = db.execute("SELECT id, body FROM notes WHERE deleted_at IS NULL").fetchall()
     with db:
         db.execute("DELETE FROM note_labels")
         db.execute("DELETE FROM note_links")
@@ -457,58 +461,44 @@ def reindex() -> int:
             "INSERT INTO note_links (from_note_id, to_note_id) VALUES (?, ?)",
             [(r["id"], ref) for r in rows for ref in md.extract_note_refs(r["body"])],
         )
-        # FTS5's own rebuild from the notes table, which also resets the
-        # index's statistics.
-        db.execute("INSERT INTO notes_fts (notes_fts) VALUES ('rebuild')")
+        # Emptied and refilled with the notes not in Trash (FTS5's own
+        # 'rebuild' would index every row of the notes table). Emptying
+        # also resets the index's statistics.
+        db.execute("INSERT INTO notes_fts (notes_fts) VALUES ('delete-all')")
+        db.execute(
+            "INSERT INTO notes_fts (rowid, body) SELECT id, body FROM notes WHERE deleted_at IS NULL"
+        )
     return len(rows)
 
 
-# Label counts leave out notes in Trash. Rather than look up every labelled
-# note to see whether it's in Trash, they count all of a label's rows
-# straight from the label index and subtract those of notes in Trash,
-# found through the small Trash index -- 5 ms on ten years of notes, where
-# checking each note took over 100.
-_TRASHED_LABELS = """
-    FROM notes n CROSS JOIN note_labels nl ON nl.note_id = n.id
-    WHERE n.deleted_at IS NOT NULL
-"""
-
+# Notes in Trash have no rows in note_labels or note_links (schema.sql), so
+# counting labels or links needs no check for Trash: a plain count over the
+# index, 3 ms for ten years of notes where checking each note took over 100.
 
 def get_labels_with_counts():
     """Every label used by at least one note not in Trash, with how many
     such notes use it, most-used first."""
     return get_db().execute(
-        f"""
-        SELECT name, SUM(c) AS count FROM (
-            SELECT name, COUNT(*) AS c FROM note_labels GROUP BY name
-            UNION ALL
-            SELECT nl.name, -COUNT(*) {_TRASHED_LABELS} GROUP BY nl.name
-        )
-        GROUP BY name HAVING SUM(c) > 0
-        ORDER BY count DESC, name ASC
-        """
+        "SELECT name, COUNT(*) AS count FROM note_labels GROUP BY name ORDER BY count DESC, name ASC"
     ).fetchall()
 
 
 def label_note_count(name: str) -> int:
     """How many notes not in Trash carry the label `name` (lowercase)."""
     return get_db().execute(
-        f"""
-        SELECT (SELECT COUNT(*) FROM note_labels WHERE name = ?)
-             - (SELECT COUNT(*) {_TRASHED_LABELS} AND nl.name = ?)
-        """,
-        (name, name),
+        "SELECT COUNT(*) FROM note_labels WHERE name = ?", (name,)
     ).fetchone()[0]
 
 
 def get_backlinks(note_id: int):
-    """Notes (non-deleted) that reference this note via [[note_id]]."""
+    """Notes that reference this note via [[note_id]] (only notes not in
+    Trash have links)."""
     db = get_db()
     return db.execute(
         """
-        SELECT n.* FROM notes n
-        JOIN note_links l ON l.from_note_id = n.id
-        WHERE l.to_note_id = ? AND n.deleted_at IS NULL
+        SELECT n.* FROM note_links l
+        JOIN notes n ON n.id = l.from_note_id
+        WHERE l.to_note_id = ?
         ORDER BY n.sort_date DESC, n.id DESC
         """,
         (note_id,),
@@ -516,21 +506,19 @@ def get_backlinks(note_id: int):
 
 
 def get_backlink_counts(note_ids) -> dict:
-    """note_id -> number of notes not in Trash referencing it, for those of
-    `note_ids` that have any. Counts the same thing get_backlinks() lists,
-    so a card's badge always matches the list you see when you expand or
-    open that note."""
+    """note_id -> number of notes referencing it, for those of `note_ids`
+    that have any. Counts the same thing get_backlinks() lists, so a card's
+    badge always matches the list you see when you expand or open that
+    note."""
     db = get_db()
     counts: dict = {}
     for chunk in _chunks(note_ids):
         counts.update(
             (r["note_id"], r["c"]) for r in db.execute(
                 f"""
-                SELECT l.to_note_id AS note_id, COUNT(*) AS c
-                FROM note_links l
-                JOIN notes n ON n.id = l.from_note_id
-                WHERE n.deleted_at IS NULL AND l.to_note_id IN ({_marks(chunk)})
-                GROUP BY l.to_note_id
+                SELECT to_note_id AS note_id, COUNT(*) AS c FROM note_links
+                WHERE to_note_id IN ({_marks(chunk)})
+                GROUP BY to_note_id
                 """,
                 chunk,
             )
@@ -554,22 +542,18 @@ def _plain_snippet(body: str, length: int = 42) -> str:
     return "(empty note)"
 
 
-def _live_links_touching(db, note_ids) -> set[tuple[int, int]]:
-    """Every (from, to) link with either end in `note_ids`, counting only
-    links written in notes that aren't in Trash."""
+def _links_touching(db, note_ids) -> set[tuple[int, int]]:
+    """Every (from, to) link with either end in `note_ids` (links are only
+    stored for notes not in Trash)."""
     links: set[tuple[int, int]] = set()
     for chunk in _chunks(note_ids):
         marks = _marks(chunk)
         links.update(
             (r[0], r[1]) for r in db.execute(
                 f"""
-                SELECT l.from_note_id, l.to_note_id FROM note_links l
-                JOIN notes nf ON nf.id = l.from_note_id
-                WHERE nf.deleted_at IS NULL AND l.from_note_id IN ({marks})
+                SELECT from_note_id, to_note_id FROM note_links WHERE from_note_id IN ({marks})
                 UNION
-                SELECT l.from_note_id, l.to_note_id FROM note_links l
-                JOIN notes nf ON nf.id = l.from_note_id
-                WHERE nf.deleted_at IS NULL AND l.to_note_id IN ({marks})
+                SELECT from_note_id, to_note_id FROM note_links WHERE to_note_id IN ({marks})
                 """,
                 chunk + chunk,
             )
@@ -591,7 +575,7 @@ def get_graph_data(center_id: int, hops: int = 1):
     frontier = {center_id}
     links: set[tuple[int, int]] = set()
     for _ in range(max(hops, 0)):
-        touching = _live_links_touching(db, frontier)
+        touching = _links_touching(db, frontier)
         links |= touching
         frontier = {n for link in touching for n in link} - visited
         visited |= frontier
@@ -600,7 +584,7 @@ def get_graph_data(center_id: int, hops: int = 1):
     # Links between two notes of the outermost ring belong in the picture
     # too, and the loop above never asked about those notes' links.
     if frontier:
-        links |= _live_links_touching(db, frontier)
+        links |= _links_touching(db, frontier)
     node_ids = sorted(visited)
     chosen_edges = sorted((a, b) for a, b in links if a in visited and b in visited)
 
