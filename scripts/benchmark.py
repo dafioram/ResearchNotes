@@ -76,6 +76,8 @@ def seed(app, count: int, rng: random.Random) -> list[str]:
             else:
                 ref = rng.choice(hubs[-50:])
             refs.add(count + rng.randint(1, 1000) if rng.random() < 0.01 else ref)
+        if rng.random() < 0.01:
+            parts.append(f"Compare with [[later: {words(3)}]]")
         if is_hub:
             hubs.append(i)
         if refs:
@@ -161,6 +163,10 @@ def main() -> None:
             (f"Search: two labels", "get", f"/?q=%23{label}+%23topic2", {}),
             ("Search: word + label + dates", "get", f"/?q=model+%23{label}+after:2020+before:2024", {}),
             ("Search: a number", "get", "/?q=12", {}),
+            ("Search: has:later", "get", "/?q=has:later", {}),
+            ("[[ lookup, nothing typed", "get", "/api/notes/lookup?q=", {}),
+            ("[[ lookup, a word", "get", "/api/notes/lookup?q=mod", {}),
+            ("[[ lookup, a number", "get", "/api/notes/lookup?q=12", {}),
             ("Open a note", "get", f"/notes/{recent}", {}),
             (f"Open a hub note ({incoming[hub]} backlinks)", "get", f"/notes/{hub}", {}),
             ("Edit a note", "get", f"/notes/{recent}/edit", {}),

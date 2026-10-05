@@ -53,7 +53,7 @@ def test_lookups_about_many_ids_are_split_into_chunks(app):
         target = dbmod.create_note("# Target", "2026-01-01")
         dbmod.create_note(f"links to [[{target}]]", "2026-01-02")
         many = list(range(1, 1200)) + [target]
-        assert dbmod.existing_note_ids(many) == {1, 2}
+        assert set(dbmod.note_titles(many)) == {1, 2}
         assert dbmod.get_backlink_counts(many) == {target: 1}
         assert dbmod.get_attachment_counts(many) == {}
 

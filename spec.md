@@ -162,7 +162,8 @@ note, Random, History, Trash (Graph is reached from a note).
 - **Left sidebar** (270px, sticky — it stays in view while the page
   scrolls, and scrolls on its own if it's taller than the window). Its
   contents depend on the page:
-  - Feed: Views (shortcuts that add `is:unlinked` / `has:file` to the
+  - Feed: Views (shortcuts that add `is:unlinked` / `has:file` /
+    `has:later` to the
     search), the label list (§6.4), and a folded "Search tips" with the
     syntax (§7).
   - Trash / History: the page name and what it lists.
@@ -423,13 +424,50 @@ target are lowercased.
 
 ### 6.2 `[[note-number]]`
 
-References another note by id, from anywhere in the text. Renders as a
-link (`/notes/<id>`) if that note exists and isn't soft-deleted;
-otherwise as a **ghost** — visually distinct (dashed, muted-red
-underline, a `title` tooltip) so a broken reference is visible at a
-glance instead of silently swallowed or erroring. Whether a referenced
-note exists is looked up for just the ids the shown notes reference
-(`db.existing_note_ids`), not by loading every note's id.
+References another note by id, from anywhere in the text. The text
+always holds the number — it never changes, whatever happens to the
+other note's title — but it **displays as that note's title**: the
+title (its first line as plain text, `md.first_line_text`, cut at 80
+characters with the whole title in the tooltip) as a link to
+`/notes/<id>`, with the number small after it, so "see [[12]]" reads
+"see Spacing effect" with a small 12. A note with an empty first line shows as
+`[[12]]`. Where the result has to be plain text — backlink passages
+(§6.5), History, link text inside another link — refs stay `[[12]]`.
+
+A ref to a note that doesn't exist or is in Trash renders as a
+**ghost** — visually distinct (dashed, muted-red underline, a `title`
+tooltip) so a broken reference is visible at a glance instead of
+silently swallowed or erroring. Titles are looked up for just the ids
+the shown notes reference (`db.note_titles`), not by loading every note.
+
+**Writing a link.** Typing `[[` in the editor opens a list of notes to
+link to, under the cursor (`app.js`, backed by `/api/notes/lookup`):
+
+- Nothing typed yet: the latest notes, in feed order.
+- Words: a search (§7) with the last word taken as a prefix since it's
+  still being typed; notes with all the words in their **title** come
+  first, then the rest by relevance. Up to 8.
+- A number: notes numbered that way first (`12` → 12, 120, 121 …).
+- The note being edited is left out.
+- The last choice is always **link later** (below), carrying what was
+  typed as its hint.
+
+Up/Down move, Enter or Tab inserts `[[id]]` (replacing the `[[` and
+what was typed after it, and a `]]` already there), Escape closes the
+list until the next `[[`. Clicking a choice works too. Insertion goes
+through the browser's own editing, so Ctrl+Z undoes it.
+
+**`[[later]]`** — a link to fill in later, for when the note it should
+point to doesn't exist yet or can't be found right now. Any
+capitalization; optionally with a hint, `[[later: Bjork 1994]]`, so it
+says what it's waiting for. It shows as a dotted placeholder (hint and
+all, as typed — nothing inside it is formatted) and links nowhere: it
+makes no `note_links` row, so no backlink, no graph node, and it doesn't
+count as a connection for `is:unlinked`. `has:later` (§7, and the
+sidebar's *Links to fill in* view) lists every note that still has one;
+filling one in is replacing it with a `[[` pick. Chosen over creating a
+note from the pop-up, or `[[+]]` for "the next note": a number taken
+before the note exists can end up pointing at the wrong one (§12).
 
 ### 6.3 Resyncing on save
 
@@ -553,6 +591,7 @@ feed's sidebar has the same list folded under "Search tips"):
 | `-#draft` | not carrying the label |
 | `is:unlinked` | with no `[[links]]` in or out (§8) |
 | `has:file` (or `has:files`) | with at least one attachment (§9.4) |
+| `has:later` | with a `[[later]]` link still to fill in (§6.2) |
 | `after:2025-03`, `before:2026` | by sort date: on/after the start of that period, before the start of that one (`YYYY`, `YYYY-MM` or `YYYY-MM-DD`) |
 | `1234` | (a number alone) whose number starts with 1234, first — see below |
 
@@ -579,7 +618,11 @@ Every part is ANDed. Matching:
    like `100a` does **not** match ids.
 3. **Labels, `is:unlinked`, `has:file` and dates** are plain conditions
    on the same query (`EXISTS` over `note_labels` / `note_attachments`,
-   a range on `sort_date`).
+   a range on `sort_date`). **`has:later`** uses the search index to
+   narrow it to notes containing the word "later", then checks those
+   with the renderer's own rule (`md.has_later`, registered as an SQL
+   function), so `[[later]]` inside code or the plain word "later"
+   doesn't count — with no column or table of its own.
 4. **Mistakes are said, not swallowed**: something that looks like an
    operator but isn't readable (`after:yesterday`, `after:2025-02-30`)
    is shown under the result count, and the rest of the search still
@@ -909,6 +952,11 @@ overlooked:
 
 - **Auth / multi-user.** Single-user, no-auth is the design, not a
   placeholder.
+- **Creating a note from the `[[` pop-up, or `[[+]]` for "the next
+  note".** The number isn't reserved until the note exists, so the
+  link can end up pointing at the note being written, or whichever
+  note is created next. `[[later: hint]]` (§6.2) marks the gap instead,
+  and `has:later` finds it again.
 - **Folgezettel-style branching ids** (`1`, `1a`, `1a1`, ...). Notes
   have plain sequential integer ids. Explicit `[[links]]` + backlinks +
   the graph view cover the associative purpose Folgezettel numbering

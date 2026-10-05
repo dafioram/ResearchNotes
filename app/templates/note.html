@@ -78,7 +78,7 @@
           action="{% if is_new %}{{ url_for('notes.create_note') }}{% else %}{{ url_for('notes.update_note', note_id=note['id']) }}{% endif %}"></form>
 
     <div class="field">
-      <label for="body">Body &mdash; raw markdown subset. Use <code>#label</code> for tags and <code>[[note-number]]</code> to link other notes.</label>
+      <label for="body">Body &mdash; raw markdown subset. Use <code>#label</code> for tags; type <code>[[</code> to link another note, or <code>[[later]]</code> to fill a link in later.</label>
       <textarea class="editor" id="body" name="body" form="note-form" placeholder="# Title&#10;&#10;Write your note here...">{{ body }}</textarea>
     </div>
 

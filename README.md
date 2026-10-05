@@ -33,6 +33,7 @@ in [spec.md](spec.md).
   | `#learning -#draft` | with / without a label (several labels: all of them) |
   | `is:unlinked` | with no `[[links]]` in or out |
   | `has:file` | with an attachment |
+  | `has:later` | with a `[[later]]` link still to fill in |
   | `after:2025-03 before:2026` | by sort date (`YYYY`, `YYYY-MM` or `YYYY-MM-DD`) |
   | `1234` | numbered 1234, 12340, ... first, then ones mentioning it |
 
@@ -61,9 +62,16 @@ in [spec.md](spec.md).
   labels. (`#label` needs no space; a header needs one, e.g. `# Title`;
   `##nospace` is inert -- neither a header nor a label.)
 - **`[[note-number]]`** references to other notes, from anywhere in the
-  text. Renders as a link if the note exists, or a dashed "ghost" marker
-  if it doesn't (broken references are visible at a glance, never silently
-  swallowed).
+  text. You don't need to know the number: typing `[[` in the editor
+  lists notes as you type a few words of a title (or a number), and
+  picking one inserts `[[123]]`. A reference shows as the linked note's
+  title (with its number small after it), or a dashed "ghost" marker if
+  the note doesn't exist (broken references are visible at a glance,
+  never silently swallowed).
+- **`[[later]]`** (or `[[later: Bjork 1994]]`, with a hint) marks a link
+  to fill in later, when the note doesn't exist yet. It's the last choice
+  in the `[[` list, links nowhere, and `has:later` (the sidebar's *Links
+  to fill in*) finds every note that still has one.
 - **Backlinks** -- the notes that reference a note, listed on its own
   page and in its inline expansion on the feed (first 10 there, with a
   link to the full list), and counted in a badge on every card. Each
@@ -81,8 +89,8 @@ in [spec.md](spec.md).
   ghost nodes; edges pointing at them are colored red.
 - **Views** in the feed's sidebar: *Unlinked notes* (`is:unlinked`, notes
   with no incoming or outgoing `[[links]]` -- ones that never got
-  integrated into your web of ideas) and *Notes with files* (`has:file`).
-  Both are just searches, so they combine with words and labels. The old
+  integrated into your web of ideas), *Notes with files* (`has:file`) and
+  *Links to fill in* (`has:later`). All are just searches, so they combine with words and labels. The old
   `/orphans` and `/attachments` addresses redirect to them.
 - **Random note** button, in the spirit of re-reading old notes to spark
   new connections.

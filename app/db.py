@@ -1,5 +1,6 @@
 import html
 import json
+import re
 import sqlite3
 import time
 from datetime import datetime, timezone
@@ -24,6 +25,8 @@ def get_db() -> sqlite3.Connection:
             detect_types=sqlite3.PARSE_DECLTYPES,
         )
         g.db.row_factory = sqlite3.Row
+        # For has:later (spec §7): the same rule the renderer uses.
+        g.db.create_function("has_later", 1, md.has_later, deterministic=True)
         g.db.execute("PRAGMA foreign_keys = ON")
         g.db.execute("PRAGMA journal_mode = WAL")
     return g.db
@@ -249,6 +252,11 @@ def _search_parts(q):
         where.append(_UNLINKED)
     if q.has_file:
         where.append("EXISTS (SELECT 1 FROM note_attachments WHERE note_id = n.id)")
+    if q.has_later:
+        # The index narrows it to notes with the word "later"; has_later()
+        # (md.has_later) checks those for a real [[later]] outside code.
+        where.append("""n.id IN (SELECT rowid FROM notes_fts WHERE notes_fts MATCH '"later"') """
+                     "AND has_later(n.body)")
     if q.after:
         where.append("n.sort_date >= ?")
         params.append(q.after)
@@ -277,6 +285,32 @@ def search_page(q, limit: int, offset: int):
         params + order_params + [limit, offset],
     ).fetchall()
     return rows, total
+
+
+LOOKUP_SIZE = 8
+
+
+def lookup_notes(text: str, exclude: int | None = None, limit: int = LOOKUP_SIZE):
+    """Notes for the editor's [[ pop-up (spec §6.2), as (row, title)
+    pairs: the latest notes when nothing's typed yet; for a number, notes
+    numbered that way first; for words, as a search with the last word
+    taken as a prefix (it's still being typed), titles matching all the
+    words first."""
+    from . import search
+    text = text.strip()
+    if not text:
+        rows, _ = list_notes_page(None, limit + 1, 0)
+    else:
+        raw = text + "*" if not text.isdigit() and re.search(r"\w$", text) else text
+        rows, _ = search_page(search.parse(raw), 40, 0)
+    words = re.findall(r"\w+", text.lower()) if not text.isdigit() else []
+    found = [(r, md.first_line_text(r["body"])) for r in rows if r["id"] != exclude]
+    if words:
+        def in_title(item):
+            title_words = re.findall(r"\w+", item[1].lower())
+            return all(any(t.startswith(w) for t in title_words) for w in words)
+        found.sort(key=lambda item: not in_title(item))  # stable: rank kept within each group
+    return found[:limit]
 
 
 def search_notes(raw: str):
@@ -345,18 +379,18 @@ def restore_note(note_id: int) -> None:
     db.commit()
 
 
-def existing_note_ids(ids) -> set[int]:
-    """Which of `ids` are notes that exist and aren't in Trash, i.e. which
-    [[refs]] render as links rather than ghosts. Asks about just these ids
-    -- the notes on screen reference a handful -- rather than every note."""
+def note_titles(ids) -> dict[int, str]:
+    """id -> title (first line, as plain text) for those of `ids` that are
+    notes not in Trash: the [[refs]] that render as links, by their
+    note's title, rather than as ghosts. Asks about just these ids -- the
+    notes on screen reference a handful -- rather than every note."""
     db = get_db()
-    found: set[int] = set()
+    found: dict[int, str] = {}
     for chunk in _chunks(ids):
-        found.update(
-            r["id"] for r in db.execute(
-                f"SELECT id FROM notes WHERE deleted_at IS NULL AND id IN ({_marks(chunk)})", chunk
-            )
-        )
+        for r in db.execute(
+            f"SELECT id, body FROM notes WHERE deleted_at IS NULL AND id IN ({_marks(chunk)})", chunk
+        ):
+            found[r["id"]] = md.first_line_text(r["body"])
     return found
 
 
