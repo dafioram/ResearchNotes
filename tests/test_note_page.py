@@ -157,7 +157,7 @@ def test_links_from_trashed_notes_dont_count_as_connections(client, app):
     b = _create(app, f"# B\n[[{a}]]")
     client.post(f"/notes/{b}/delete")
     assert 'class="btn-quiet disabled"' in client.get(f"/notes/{a}").data.decode()
-    assert f'data-note-id="{a}"' in client.get("/orphans").data.decode()  # same rule
+    assert f'data-note-id="{a}"' in client.get("/?q=is:unlinked").data.decode()  # same rule
 
 
 def test_save_reports_connection_changes(client, app):

@@ -2,38 +2,56 @@
 {% from "_macros.html" import note_card_list, pagination %}
 {% block title %}{% if query %}Search: {{ query }} &middot; {% endif %}Research Notes{% endblock %}
 {% block sidebar %}
-  <form class="search-form" method="get" action="{{ url_for('notes.feed') }}" role="search">
-    <input type="search" name="q" value="{{ query }}"
-           placeholder="Word or note no."
-           aria-label="Search notes" autocomplete="off">
-    {% if active_label %}<input type="hidden" name="label" value="{{ active_label }}">{% endif %}
-    <button type="submit" class="btn-quiet">Search</button>
-  </form>
+  {# Every link here edits the search: clicking adds its filter, clicking
+     again takes it out (search.toggle), so they combine with each other
+     and with whatever was typed. #}
+  <p class="sidebar-heading">Views</p>
+  <nav class="label-list" aria-label="Views">
+    {% for v in views %}
+      <a class="label-row plain {% if v['active'] %}active{% endif %}"
+         {% if v['active'] %}aria-current="true"{% endif %}
+         href="{{ v['url'] }}" title="{{ v['hint'] }}">{{ v['label'] }}</a>
+    {% endfor %}
+  </nav>
 
   {% if labels %}
   <p class="sidebar-heading">Labels</p>
   <nav class="label-list" aria-label="Filter by label">
     {% for l in labels %}
-      <a class="label-row {% if active_label == l['name'] %}active{% endif %}"
-         {% if active_label == l['name'] %}aria-current="true"{% endif %}
-         href="{{ url_for('notes.feed', label=(none if active_label == l['name'] else l['name']), q=(query or none)) }}">
+      <a class="label-row {% if l['active'] %}active{% endif %}"
+         {% if l['active'] %}aria-current="true"{% endif %}
+         href="{{ l['url'] }}">
         <span class="label-name">#{{ l['name'] }}</span>
         <span class="count">{{ l['count'] }}</span>
       </a>
     {% endfor %}
   </nav>
   {% endif %}
+
+  <details class="search-tips">
+    <summary>Search tips</summary>
+    <dl>
+      <dt>memory retrieval</dt><dd>both words, any form</dd>
+      <dt>"spaced repetition"</dt><dd>that exact phrase</dd>
+      <dt>retriev*</dt><dd>words starting with it</dd>
+      <dt>-flashcards</dt><dd>without that word</dd>
+      <dt>#learning -#draft</dt><dd>with / without a label</dd>
+      <dt>is:unlinked</dt><dd>no [[links]] in or out</dd>
+      <dt>has:file</dt><dd>with an attachment</dd>
+      <dt>after:2025-03 before:2026</dt><dd>by sort date</dd>
+      <dt>1234</dt><dd>notes numbered 1234&hellip; first</dd>
+    </dl>
+  </details>
 {% endblock %}
 
 {% block content %}
 
-  {% if active_label or query %}
+  {% if query %}
     <div class="filter-banner">
-      {% if query %}Searching for <strong>&ldquo;{{ query }}&rdquo;</strong>{% endif %}
-      {% if query and active_label %} &middot; {% endif %}
-      {% if active_label %}tagged <strong>#{{ active_label }}</strong>{% endif %}
-      &middot;
-      <a href="{{ url_for('notes.feed') }}">clear{% if query and active_label %} all{% endif %}</a>
+      {{ pager['total'] }} note{{ 's' if pager['total'] != 1 else '' }}
+      match{{ 'es' if pager['total'] == 1 else '' }} <strong>&ldquo;{{ query }}&rdquo;</strong>
+      &middot; <a href="{{ url_for('notes.feed') }}">clear</a>
+      {% for p in problems %}<p class="search-problem">Note: {{ p }}</p>{% endfor %}
     </div>
   {% endif %}
 
@@ -42,12 +60,8 @@
     {{ pagination(pager) }}
   {% else %}
     <div class="empty-state">
-      {% if query and active_label %}
-        No notes matching &ldquo;{{ query }}&rdquo; tagged #{{ active_label }}.
-      {% elif query %}
-        No notes matching &ldquo;{{ query }}&rdquo;.
-      {% elif active_label %}
-        No notes tagged #{{ active_label }}.
+      {% if query %}
+        No notes match &ldquo;{{ query }}&rdquo;.
       {% else %}
         No notes yet. Start your first one.
       {% endif %}

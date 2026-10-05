@@ -1,3 +1,4 @@
+import html
 import json
 import sqlite3
 import time
@@ -203,69 +204,109 @@ def list_notes_page(label: str | None, limit: int, offset: int):
     return rows, total
 
 
-def _build_fts_query(raw: str) -> str:
-    """Turn free-typed search text into a safe FTS5 query: each whitespace
-    -separated token becomes its own quoted phrase (ANDed together), so
-    characters that are meaningful to FTS5 syntax (*, -, ", parens, ...)
-    are treated as literal text instead of query operators."""
-    tokens = raw.split()
-    return " ".join('"' + t.replace('"', '""') + '"' for t in tokens)
+# ---------------------------------------------------------------------------
+# Search (spec §7) -- the query is parsed by search.py
+# ---------------------------------------------------------------------------
+
+def _search_parts(q):
+    """FROM/WHERE (with its params), ORDER BY (with its params) and the
+    FROM/WHERE for counting, for a parsed search.Query."""
+    where = ["n.deleted_at IS NULL"]
+    params: list = []
+    text = " AND ".join(q.words)
+    if q.number:
+        # A number alone: notes whose number starts with it, then notes
+        # that contain it, ranked.
+        prefix = q.number + "%"
+        join = ("LEFT JOIN (SELECT rowid AS rid, rank FROM notes_fts WHERE notes_fts MATCH ?) f "
+                "ON f.rid = n.id")
+        params.append(text)
+        where.append("(CAST(n.id AS TEXT) LIKE ? OR f.rid IS NOT NULL)")
+        params.append(prefix)
+        order = ("ORDER BY CAST(n.id AS TEXT) LIKE ? DESC, n.id = ? DESC, "
+                 "CASE WHEN CAST(n.id AS TEXT) LIKE ? THEN n.id END, f.rank")
+        order_params = [prefix, int(q.number), prefix]
+        count_join = join
+    elif text:
+        join = ("JOIN (SELECT rowid AS rid, rank FROM notes_fts WHERE notes_fts MATCH ?) f "
+                "ON f.rid = n.id")
+        count_join = "JOIN (SELECT rowid AS rid FROM notes_fts WHERE notes_fts MATCH ?) f ON f.rid = n.id"
+        params.append(text)
+        order, order_params = "ORDER BY f.rank, n.id DESC", []
+    else:
+        join = count_join = ""
+        order, order_params = _FEED_ORDER, []
+    if q.exclude_words:
+        where.append("n.id NOT IN (SELECT rowid FROM notes_fts WHERE notes_fts MATCH ?)")
+        params.append(" OR ".join(q.exclude_words))
+    for name in q.labels:
+        where.append("EXISTS (SELECT 1 FROM note_labels WHERE note_id = n.id AND name = ?)")
+        params.append(name)
+    for name in q.exclude_labels:
+        where.append("NOT EXISTS (SELECT 1 FROM note_labels WHERE note_id = n.id AND name = ?)")
+        params.append(name)
+    if q.unlinked:
+        where.append(_UNLINKED)
+    if q.has_file:
+        where.append("EXISTS (SELECT 1 FROM note_attachments WHERE note_id = n.id)")
+    if q.after:
+        where.append("n.sort_date >= ?")
+        params.append(q.after)
+    if q.before:
+        where.append("n.sort_date < ?")
+        params.append(q.before)
+    conditions = " AND ".join(where)
+    return (f"FROM notes n {join} WHERE {conditions}", params, order, order_params,
+            f"FROM notes n {count_join} WHERE {conditions}")
 
 
-def search_notes(query: str, label: str | None = None):
-    """Search non-deleted notes by body text (SQLite FTS5), optionally
-    restricted to notes carrying `label`.
-
-    If `query` is made up of digits only, notes whose id STARTS WITH that
-    number are also pulled in (e.g. "100" matches note 100, 1000, 1005,
-    ...) and sorted to the very top -- exact id match first, then the
-    rest ascending by id -- ahead of the ordinary text-relevance results.
-    A note that matches both ways is only listed once, in the id group.
-    """
-    query = query.strip()
-    if not query:
-        return list_notes(label=label)
-
+def search_page(q, limit: int, offset: int):
+    """One page of the notes matching a parsed search.Query, and how many
+    match in all. Ranked by relevance when there are words to rank by,
+    otherwise in feed order. Ranking, paging and counting all happen in
+    SQLite -- nothing loads every match."""
+    if q.is_empty and not q.number:
+        return list_notes_page(None, limit, offset)
+    if q.only_label:
+        return list_notes_page(q.only_label, limit, offset)
+    from_where, params, order, order_params, count_from = _search_parts(q)
     db = get_db()
+    total = db.execute(f"SELECT COUNT(*) {count_from}", params).fetchone()[0]
+    rows = db.execute(
+        f"SELECT n.* {from_where} {order} LIMIT ? OFFSET ?",
+        params + order_params + [limit, offset],
+    ).fetchall()
+    return rows, total
 
-    label_join = ""
-    label_where = ""
-    label_params: tuple = ()
-    if label:
-        label_join = "JOIN note_labels nl ON nl.note_id = n.id"
-        label_where = "AND nl.name = ?"
-        label_params = (label.lower(),)
 
-    id_matches = []
-    if query.isdigit():
-        sql = f"""
-            SELECT n.* FROM notes n
-            {label_join}
-            WHERE n.deleted_at IS NULL
-              AND CAST(n.id AS TEXT) LIKE ?
-              {label_where}
-            ORDER BY (n.id = ?) DESC, n.id ASC
-        """
-        params = (query + "%",) + label_params + (int(query),)
-        id_matches = db.execute(sql, params).fetchall()
+def search_notes(raw: str):
+    """Every note matching the search text `raw`, best first."""
+    from . import search
+    return search_page(search.parse(raw), -1, 0)[0]
 
-    id_match_ids = {r["id"] for r in id_matches}
 
-    fts_query = _build_fts_query(query)
-    sql = f"""
-        SELECT n.* FROM notes n
-        JOIN notes_fts ON notes_fts.rowid = n.id
-        {label_join}
-        WHERE n.deleted_at IS NULL
-          AND notes_fts MATCH ?
-          {label_where}
-        ORDER BY bm25(notes_fts)
-    """
-    params = (fts_query,) + label_params
-    fts_rows = db.execute(sql, params).fetchall()
-    text_matches = [r for r in fts_rows if r["id"] not in id_match_ids]
+# Marks around matched words in snippets: characters that can't be in a
+# note, so the passage can be HTML-escaped and the marks swapped after.
+_MARK_ON, _MARK_OFF = "\x02", "\x03"
 
-    return list(id_matches) + text_matches
+
+def search_snippets(q, note_ids) -> dict:
+    """note_id -> the passage of that note that best matches the query's
+    words, as HTML with <mark> around them -- for just the notes on the
+    page (snippet() is too costly to run over every match)."""
+    if not q.words or not note_ids:
+        return {}
+    db = get_db()
+    out = {}
+    for chunk in _chunks(note_ids):
+        for r in db.execute(
+            f"SELECT rowid, snippet(notes_fts, 0, '{_MARK_ON}', '{_MARK_OFF}', '\u2026', 24) "
+            f"FROM notes_fts WHERE notes_fts MATCH ? AND rowid IN ({_marks(chunk)})",
+            [" AND ".join(q.words)] + chunk,
+        ):
+            passage = html.escape(" ".join(r[1].split()), quote=False)
+            out[r[0]] = passage.replace(_MARK_ON, "<mark>").replace(_MARK_OFF, "</mark>")
+    return out
 
 
 def list_deleted_notes():
@@ -330,14 +371,11 @@ def get_random_note_id():
 # A note is connected if it links out to anything (a missing or deleted
 # target still counts: the graph shows it as a ghost), or if a note that
 # isn't in Trash links to it -- which is any row in note_links, since notes
-# in Trash have none. The Orphans list and the note page's "View graph"
-# button use this same rule.
-_ORPHANS_FROM = """
-    FROM notes n
-    WHERE n.deleted_at IS NULL
-      AND NOT EXISTS (SELECT 1 FROM note_links WHERE from_note_id = n.id)
-      AND NOT EXISTS (SELECT 1 FROM note_links WHERE to_note_id = n.id)
-"""
+# in Trash have none. The is:unlinked search filter (what Orphans listed)
+# and the note page's "View graph" button use this same rule.
+_UNLINKED = """(
+    NOT EXISTS (SELECT 1 FROM note_links WHERE from_note_id = n.id)
+    AND NOT EXISTS (SELECT 1 FROM note_links WHERE to_note_id = n.id))"""
 
 
 def note_has_connections(note_id: int) -> bool:
@@ -363,21 +401,6 @@ def feed_position(note_id: int) -> int:
         "SELECT COUNT(*) FROM notes WHERE deleted_at IS NULL AND (sort_date, id) > (?, ?)",
         (row["sort_date"], note_id),
     ).fetchone()[0]
-
-
-_WITH_ATTACHMENTS_FROM = """
-    FROM notes n
-    WHERE n.deleted_at IS NULL
-      AND EXISTS (SELECT 1 FROM note_attachments na WHERE na.note_id = n.id)
-"""
-
-
-def get_orphan_notes_page(limit: int, offset: int):
-    return _paged_notes(_ORPHANS_FROM, (), limit, offset)
-
-
-def get_notes_with_attachments_page(limit: int, offset: int):
-    return _paged_notes(_WITH_ATTACHMENTS_FROM, (), limit, offset)
 
 
 def get_attachment_counts(note_ids) -> dict:

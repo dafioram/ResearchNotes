@@ -56,7 +56,7 @@ def test_label_not_extracted_from_fenced_code_block():
 
 def test_label_renders_as_link_to_feed_filter():
     html = md.render("hello #zettelkasten world")
-    assert '<a class="label-tag" href="/?label=zettelkasten">#zettelkasten</a>' in html
+    assert '<a class="label-tag" href="/?q=%23zettelkasten">#zettelkasten</a>' in html
 
 
 # ---------------------------------------------------------------------
@@ -327,13 +327,13 @@ def test_ref_context_text_is_plain_not_html():
 def test_label_rules(text, labels):
     assert md.extract_labels(text) == labels
     # what renders as a label is exactly what's stored as one
-    rendered = re.findall(r'class="label-tag" href="/\?label=([^"]+)"', md.render(text))
+    rendered = re.findall(r'class="label-tag" href="/\?q=%23([^"]+)"', md.render(text))
     assert {unquote(r) for r in rendered} == labels
 
 
 def test_label_keeps_its_case_on_screen_and_links_to_the_lowercase_filter():
     html = md.render("About #Café.")
-    assert '<a class="label-tag" href="/?label=caf%C3%A9">#Café</a>.' in html
+    assert '<a class="label-tag" href="/?q=%23caf%C3%A9">#Café</a>.' in html
 
 
 # ---------------------------------------------------------------------

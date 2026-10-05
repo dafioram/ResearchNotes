@@ -1,10 +1,8 @@
 {#
-  Shared rendering for one feed-style note card: used by the feed itself,
-  Orphans, and the Attachments tab, so all three stay visually and
-  behaviorally identical (expand/collapse, Edit button, permalink,
-  attachment-count badge) rather than drifting apart as separate copies.
-  Expects a dict with: id, sort_date, line_count, attachment_count,
-  backlink_count, snippet_html.
+  Shared rendering for one note card in a list (the feed, searched or
+  not): expand/collapse, Edit button, badges. Expects a dict with: id,
+  sort_date, line_count, attachment_count, backlink_count, snippet_html,
+  and match_html (the passage a search matched, highlighted) or None.
 #}
 {% macro note_card(n) -%}
 <div class="note-card" data-note-id="{{ n['id'] }}"
@@ -29,7 +27,9 @@
     </div>
   </div>
   <div class="card-clickzone" data-role="clickzone">
-    <div class="snippet" data-role="snippet">{{ n['snippet_html'] | safe }}</div>
+    <div class="snippet" data-role="snippet">{{ n['snippet_html'] | safe }}
+      {%- if n['match_html'] %}<p class="search-match">{{ n['match_html'] | safe }}</p>{% endif -%}
+    </div>
     <div class="full-view" data-role="full" hidden></div>
   </div>
 </div>

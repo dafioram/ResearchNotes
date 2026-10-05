@@ -1,0 +1,130 @@
+"""
+The search box's syntax (spec §7): what someone types, turned into a
+`Query` that db.search_page() runs. One box covers everything -- words for
+a quick look, operators when they're wanted:
+
+    memory retrieval     notes with both words (any form: "retrieving" too)
+    "spaced repetition"  that exact phrase
+    retriev*             words starting with "retriev"
+    -flashcards          without that word (or -"a phrase")
+    #learning            carrying the label; several must all be there
+    -#draft              not carrying it
+    is:unlinked          no [[links]] in or out (what Orphans listed)
+    has:file             with an attachment (what Attachments listed)
+    after:2025-03        sort date on or after the start of March 2025
+    before:2026          sort date before 2026 (YYYY, YYYY-MM or YYYY-MM-DD)
+    1234                 a number alone also lists notes whose number
+                         starts with it, first
+
+Anything typed is safe: words reach FTS5 only as quoted phrases, never as
+its own query syntax. Something that looks like an operator but isn't one
+(like "after:yesterday") is reported back rather than silently dropped.
+"""
+
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass, field
+from datetime import date
+
+_TOKEN_RE = re.compile(r'(-?)"([^"]*)"?|(\S+)')
+_LABEL_RE = re.compile(r"#([^\W\d_](?:[\w.-]*[^\W_])?)")  # the label rule, spec §6.1
+_DATE_RE = re.compile(r"(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?")
+FILTERS = {"is:unlinked": "unlinked", "has:file": "has_file", "has:files": "has_file"}
+
+
+@dataclass
+class Query:
+    words: list[str] = field(default_factory=list)          # FTS5 terms, all required
+    exclude_words: list[str] = field(default_factory=list)  # FTS5 terms, none allowed
+    labels: list[str] = field(default_factory=list)
+    exclude_labels: list[str] = field(default_factory=list)
+    unlinked: bool = False
+    has_file: bool = False
+    after: str | None = None    # sort_date >= this (YYYY-MM-DD)
+    before: str | None = None   # sort_date < this
+    number: str | None = None   # the whole query was this number
+    problems: list[str] = field(default_factory=list)
+
+    @property
+    def is_empty(self) -> bool:
+        return not (self.words or self.exclude_words or self.labels or self.exclude_labels
+                    or self.unlinked or self.has_file or self.after or self.before)
+
+    @property
+    def only_label(self) -> str | None:
+        """The label, when the query is nothing but one #label (which the
+        feed has a quicker way to list, db.list_notes_page)."""
+        if len(self.labels) == 1 and Query(labels=self.labels) == self:
+            return self.labels[0]
+        return None
+
+
+def _phrase(text: str, prefix: bool = False) -> str | None:
+    """A word or phrase as a quoted FTS5 phrase, or None if it holds no
+    word characters at all (it couldn't match anything)."""
+    if not re.search(r"\w", text):
+        return None
+    return '"' + text.replace('"', '""') + '"' + ("*" if prefix else "")
+
+
+def _period_start(text: str) -> str | None:
+    """'2025' / '2025-03' / '2025-03-14' -> the first day of that period."""
+    m = _DATE_RE.fullmatch(text)
+    if not m:
+        return None
+    year, month, day = int(m[1]), int(m[2] or 1), int(m[3] or 1)
+    try:
+        return date(year, month, day).isoformat()
+    except ValueError:
+        return None
+
+
+def parse(raw: str) -> Query:
+    q = Query()
+    raw = (raw or "").strip()
+    if raw.isdigit():
+        q.number = raw
+        q.words.append(_phrase(raw))
+        return q
+    for m in _TOKEN_RE.finditer(raw):
+        if m[3] is None:  # "a phrase", maybe -"a phrase"
+            term = _phrase(m[2])
+            if term:
+                (q.exclude_words if m[1] else q.words).append(term)
+            continue
+        token = m[3]
+        negate = token.startswith("-") and len(token) > 1
+        body = token[1:] if negate else token
+        lower = body.lower()
+        label = _LABEL_RE.fullmatch(body)
+        if label:
+            (q.exclude_labels if negate else q.labels).append(label[1].lower())
+        elif lower in FILTERS and not negate:
+            setattr(q, FILTERS[lower], True)
+        elif lower.startswith(("after:", "before:")) and not negate:
+            key, value = lower.split(":", 1)
+            bound = _period_start(value)
+            if bound is None:
+                q.problems.append(f"couldn't read the date in “{token}” (use YYYY, YYYY-MM or YYYY-MM-DD)")
+            else:
+                setattr(q, key, bound)
+        else:
+            term = _phrase(body.rstrip("*"), prefix=body.endswith("*"))
+            if term:
+                (q.exclude_words if negate else q.words).append(term)
+    return q
+
+
+def toggle(raw: str, token: str) -> str:
+    """The query with `token` (e.g. "#memory", "is:unlinked") added, or
+    removed if it's already there -- for the sidebar's links."""
+    words = (raw or "").split()
+    kept = [w for w in words if w.lower() != token.lower()]
+    if len(kept) == len(words):
+        kept.append(token)
+    return " ".join(kept)
+
+
+def has_token(raw: str, token: str) -> bool:
+    return token.lower() in (w.lower() for w in (raw or "").split())
