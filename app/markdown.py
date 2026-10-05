@@ -4,11 +4,12 @@ A small, hand-rolled Markdown subset renderer for research notes.
 This is deliberately NOT a full CommonMark implementation. It supports just
 enough syntax for note-taking, plus two note-specific extensions:
 
-    #label          -> a clickable tag (single '#' immediately followed by a
-                        word character; requires NO space, otherwise it's an
-                        ATX header). A leading '##label' (double hash, no
-                        space) is neither a header nor a label -- it is left
-                        as plain text.
+    #label          -> a clickable tag. The '#' starts a line or follows
+                        whitespace; then a letter (any language), then
+                        letters, digits, '.', '-' or '_'. Trailing '.', '-'
+                        and '_' aren't part of it ("#label." is #label).
+                        "# Title" (with a space) is a header; '##label'
+                        is neither -- it is left as plain text.
     [[123]]         -> a reference to note #123. Renders as a link if note
                         123 exists (and is not deleted), otherwise as a
                         "ghost" reference so broken links are visible at a
@@ -38,6 +39,7 @@ from __future__ import annotations
 
 import html
 import re
+from urllib.parse import quote
 from dataclasses import dataclass, field
 
 # ---------------------------------------------------------------------------
@@ -47,11 +49,13 @@ from dataclasses import dataclass, field
 CODE_BLOCK_RE = re.compile(r"```([a-zA-Z0-9_+-]*)\n?(.*?)```", re.DOTALL)
 INLINE_CODE_RE = re.compile(r"`([^`\n]+)`")
 
-# A '#' starts a label only if it is not itself preceded by a '#' (so a
-# doubled '##word' is inert) and is immediately followed by a label
-# character. This also naturally keeps ATX headers ("# Title", which have a
-# space after the hashes) out of the label net.
-LABEL_RE = re.compile(r"(?<!#)#([A-Za-z0-9_-]+)")
+# A label (spec §6.1): '#' at the start of a line or after whitespace --
+# so URL fragments (page#part), C# and foo#bar aren't labels -- then a
+# letter in any language ([^\W\d_]), so "#3" and "PR #42" aren't either,
+# then letters, digits, '.', '-' or '_', ending on a letter or digit so
+# that "#label." or "#label-" is just #label. "# Title" has a space after
+# the '#', so stays a header; in '##word' neither '#' qualifies.
+LABEL_RE = re.compile(r"(?<!\S)#([^\W\d_](?:[\w.-]*[^\W_])?)")
 NOTE_REF_RE = re.compile(r"\[\[(\d+)\]\]")
 
 _PLACEHOLDER_TMPL = "\x00{kind}{idx}\x00"
@@ -144,8 +148,8 @@ def safe_href(url: str) -> str | None:
 def _render_inline(text: str, stash: _Stash, existing_ids: set[int]) -> str:
     """Render inline markdown (bold/italic/strike/links/labels/note-refs)
     on text that has ALREADY been HTML-escaped and had code spans stashed.
-    Links and note-refs are stashed first so bold/italic/label passes can't
-    reach into a URL or a ref's rendered HTML."""
+    Links, note-refs and labels are stashed first so the bold/italic passes
+    can't reach into a URL, a ref or a label."""
 
     def _link(m: re.Match) -> str:
         label, url = m.group(1), m.group(2)
@@ -171,18 +175,21 @@ def _render_inline(text: str, stash: _Stash, existing_ids: set[int]) -> str:
 
     text = NOTE_REF_RE.sub(_ref, text)
 
-    text = BOLD_RE.sub(lambda m: f"<strong>{m.group(1) or m.group(2)}</strong>", text)
-    text = STRIKE_RE.sub(lambda m: f"<del>{m.group(1)}</del>", text)
-    text = ITALIC_RE.sub(lambda m: f"<em>{m.group(1) or m.group(2)}</em>", text)
-
+    # Labels are set aside before bold/italic too, so emphasis can't reach
+    # into one ("#snake_case_" would otherwise lose "_case_" to italics),
+    # and so what shows as a label matches what extract_labels() stores.
     def _label(m: re.Match) -> str:
         name = m.group(1)
         return stash.store(
             "LABELTAG",
-            f'<a class="label-tag" href="/?label={html.escape(name.lower(), quote=True)}">#{html.escape(name)}</a>',
+            f'<a class="label-tag" href="/?label={quote(name.lower())}">#{html.escape(name)}</a>',
         )
 
     text = LABEL_RE.sub(_label, text)
+
+    text = BOLD_RE.sub(lambda m: f"<strong>{m.group(1) or m.group(2)}</strong>", text)
+    text = STRIKE_RE.sub(lambda m: f"<del>{m.group(1)}</del>", text)
+    text = ITALIC_RE.sub(lambda m: f"<em>{m.group(1) or m.group(2)}</em>", text)
 
     return text
 

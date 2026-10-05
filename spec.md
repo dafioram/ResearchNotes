@@ -53,8 +53,8 @@ which fall back to local serif/monospace fonts (§2).
 
 ```
 notes(id PK, body, sort_date, created_at, updated_at, deleted_at)
-note_labels(note_id, name)                           -- derived, resynced on save
-note_links(from_note_id, to_note_id)                 -- derived, resynced on save
+note_labels(note_id, name)                           -- derived, resynced on save; not for Trash
+note_links(from_note_id, to_note_id)                 -- derived, resynced on save; not for Trash
 attachments(id PK, hash UNIQUE, filename, extension, mime_type, size, created_at)
 note_attachments(note_id, attachment_id)             -- many-to-many
 notes_fts(body)                                       -- FTS5 virtual table, external content
@@ -87,6 +87,22 @@ Soft delete is a nullable `deleted_at` timestamp on `notes`, not a
 separate table or a boolean. Every query that lists notes for normal use
 filters `WHERE deleted_at IS NULL`; the Trash view is the one place that
 filters the opposite way.
+
+**What's derived covers only notes not in Trash.** Moving a note to Trash
+removes its rows from `note_labels` and its outgoing rows from
+`note_links`, and triggers take it out of the search index (§7);
+restoring it re-reads all three from its text, exactly as saving does
+(§6.3). So nothing that reads labels, links or search has to check for
+Trash: counting labels is a plain count over `note_labels`, a backlink
+is any `note_links` row, and so on — each was a join to `notes` per row
+before. Links *to* a note in Trash, written in notes that aren't, stay
+put (they show as ghosts meanwhile, §6.2).
+
+`note_labels` and `note_links` are `WITHOUT ROWID` tables: the primary
+key *is* the table, instead of a table plus a copy of it as an index —
+about 40% smaller (2.8 MB less over ten years of notes). That shape
+applies to databases created since; an existing database keeps its
+tables, which behave the same.
 
 ## 4. Notes: feed, view, edit
 
@@ -124,6 +140,8 @@ filters the opposite way.
   node in the graph (§10) — the same as a note that never existed. Its
   id is never reused, and the referencing notes' `note_links` rows are
   untouched, so restoring it brings every link back exactly as it was.
+  Its own labels, links and search entry are removed while it's in
+  Trash and re-read from its text when it's restored (§3).
   A **Trash** view (`/trash`) lists deleted notes with a Restore action
   that clears `deleted_at`.
 
@@ -340,15 +358,36 @@ spliced back in verbatim at the end.
 
 ### 6.1 `#label`
 
-A `#` immediately followed by a word character starts a label — **no
-space allowed**. This is what disambiguates a label from an ATX header,
-which (per CommonMark and this parser) **requires** a space:
-`#label` → label; `# Title` → `<h1>`. A doubled `##word` (no space) is
-neither — not a header (no space) and not a label (the `#` is preceded
-by another `#`) — so it renders as inert literal text.
+What is and isn't a label:
 
-A label can appear **anywhere** in a note's text, not just at the start
-of a line. Extraction and rendering both ignore anything inside code
+- The `#` **starts a line or follows whitespace** (a space or tab). So a
+  URL's fragment (`guide#install`), `C#` and `foo#bar` aren't labels —
+  nor is a `#` right after a bracket or bold markers: `(#aside)`,
+  `**#bold**`.
+- Then a **letter**, in any language (`#café`, `#日本語`), so `#3`,
+  `PR #42` and `#2024-review` aren't labels (`#review-2024` is).
+- Then any of letters, digits, `.`, `-` and `_` (`#node.js`, `#v2.1`,
+  `#snake_case`) — but a label **ends on a letter or digit**: trailing
+  `.`, `-` and `_` aren't part of it, so "I read about #physics." is
+  `#physics`.
+- `#label` needs no space after the `#`; that's what tells it from an
+  ATX header, which (per CommonMark and this parser) **requires** one:
+  `#label` → label; `# Title` → `<h1>`. A doubled `##word` (no space) is
+  neither — not a header (no space) and not a label (its second `#`
+  follows a `#`, not whitespace) — so it renders as inert literal text.
+- A hex colour like `#fff` still reads as a label; wrap it in backticks.
+
+Rendering finds labels on the same text, before bold and italic run, so
+what shows as a label is exactly what's stored as one (emphasis used to
+reach into labels: `#snake_case_` displayed as `#snake` and an italic
+"case"). The label's link goes to `/?label=<name>`, percent-encoded.
+These rules were tightened from "a `#` not after another `#`, then
+letters, digits, `_` and `-`" (which made `#3` a label and cut `#café`
+to `caf`). Notes saved before keep their old labels until they're saved
+again, or until one `flask reindex` (§13).
+
+Within those rules a label can appear **anywhere** in a note's text,
+not just at the start of a line. Extraction and rendering both ignore anything inside code
 blocks/spans. Label names are case-insensitive for storage/dedup
 purposes — extraction lowercases before it ever reaches the database
 (`#Research` and `#research` are stored as the same `note_labels` name,
@@ -391,11 +430,10 @@ combination is an AND (must match the search *and* carry the label).
 
 How they stay quick on a big collection (§4.2):
 
-- **Counts** leave out notes in Trash without looking up every labelled
-  note: each label's rows are counted straight from the label index,
-  minus the rows of notes in Trash (found through the small Trash
-  index). On ten years of notes that's 5 ms; checking each note's row
-  took over 100, on every feed and note page.
+- **Counts** are a plain count over the label index: notes in Trash have
+  no label rows (§3), so there's nothing to check. On ten years of notes
+  that's about 3 ms; checking each labelled note's row for Trash took
+  over 100, on every feed and note page.
 - **A label's page** can be read two ways, and the quicker one depends on
   how common the label is. Walking the feed in order and checking each
   note's labels stops as soon as the page is full — quick for a common
@@ -426,7 +464,7 @@ places:
   count is defined identically to the list — non-deleted referencing
   notes, each counted once — so the badge always matches what you see
   when you expand or open the note. A reference from a soft-deleted
-  note doesn't count.
+  note doesn't count: a note in Trash has no link rows (§3).
 
 Each backlink row is a single link to the referencing note, showing:
 
@@ -504,6 +542,13 @@ same way). Soft-deleted notes are excluded from both matching paths.
 Search composes with the label filter (§6.4) as an AND, and results are
 paginated like the rest of the feed (§4.2) — ranking happens across the
 whole result set before the page is cut.
+
+The index holds exactly the notes not in Trash, kept that way by
+triggers on `notes`: a new note is added; a save that changes the text
+replaces its entry, while a save that doesn't (a new sort date, say)
+leaves the index alone; moving a note to Trash removes it, and restoring
+adds it back. (They replaced triggers that re-indexed a note on every
+update of any kind, and kept notes in Trash indexed.)
 
 The index is kept current by the triggers alone; startup never touches
 it (§13). It used to be re-filled from every note on every start, which
@@ -874,10 +919,13 @@ overlooked:
   shape (§3) has been removed.
 - **`flask reindex`** (`docker compose exec research-notes flask --app app
   reindex` under Docker) rebuilds `note_labels`, `note_links` and the
-  search index from every note's text in one transaction — about 2 s for
-  36,500 notes. `--vacuum` then compacts the file, which rewrites all of
-  it once (a full-size backup, once) and gives back space a grown search
-  index left behind. Nothing runs it automatically.
+  search index from the text of every note not in Trash, in one
+  transaction — about 2 s for 36,500 notes. `--vacuum` then compacts the
+  file, which rewrites all of it once (a full-size backup, once) and
+  gives back space a grown search index left behind. Nothing runs it
+  automatically. A database from before notes in Trash were left out of
+  labels, links and search (§3) still holds them for notes already in
+  Trash; one `flask reindex` clears that up.
 
 ## 14. Network safety
 

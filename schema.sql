@@ -31,11 +31,17 @@ DROP INDEX IF EXISTS idx_notes_sort_date;
 -- every save: a label "exists" exactly when at least one note uses it, so
 -- there is no separate labels table and nothing to clean up. Names are
 -- stored lowercase (extraction lowercases them). Same shape as note_links.
+-- Like note_links, it covers only notes not in Trash: moving a note to
+-- Trash removes its rows and restoring it re-reads them from its text, so
+-- nothing that reads these tables has to check for Trash.
+-- WITHOUT ROWID: the primary key is the table, rather than a table plus a
+-- copy of it as an index -- about 40% smaller. (Applies to new databases;
+-- an existing one keeps its tables, which work the same.)
 CREATE TABLE IF NOT EXISTS note_labels (
     note_id     INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
     name        TEXT NOT NULL COLLATE NOCASE,
     PRIMARY KEY (note_id, name)
-);
+) WITHOUT ROWID;
 
 CREATE INDEX IF NOT EXISTS idx_note_labels_name ON note_labels (name);
 
@@ -46,7 +52,7 @@ CREATE TABLE IF NOT EXISTS note_links (
     from_note_id    INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
     to_note_id      INTEGER NOT NULL,
     PRIMARY KEY (from_note_id, to_note_id)
-);
+) WITHOUT ROWID;
 
 CREATE INDEX IF NOT EXISTS idx_note_links_to ON note_links (to_note_id);
 
@@ -83,22 +89,41 @@ CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
     tokenize='porter unicode61'
 );
 
--- Triggers keep the index in sync with notes as they're written. A
--- soft delete is just an UPDATE (deleted_at changes, body doesn't) --
--- deleted notes stay indexed but are excluded at query time by filtering
--- on deleted_at, same as everywhere else in this schema.
-CREATE TRIGGER IF NOT EXISTS notes_fts_ai AFTER INSERT ON notes BEGIN
+-- Triggers keep the index to exactly the notes not in Trash, in step with
+-- their text. A save that doesn't change the text (a new sort date, say)
+-- leaves the index alone. ("delete" has to be given the text as it was
+-- indexed, hence old.body.)
+CREATE TRIGGER IF NOT EXISTS notes_fts_insert AFTER INSERT ON notes
+WHEN new.deleted_at IS NULL BEGIN
     INSERT INTO notes_fts (rowid, body) VALUES (new.id, new.body);
 END;
 
-CREATE TRIGGER IF NOT EXISTS notes_fts_ad AFTER DELETE ON notes BEGIN
-    INSERT INTO notes_fts (notes_fts, rowid, body) VALUES ('delete', old.id, old.body);
-END;
-
-CREATE TRIGGER IF NOT EXISTS notes_fts_au AFTER UPDATE ON notes BEGIN
+CREATE TRIGGER IF NOT EXISTS notes_fts_edit AFTER UPDATE OF body ON notes
+WHEN old.deleted_at IS NULL AND new.deleted_at IS NULL AND old.body IS NOT new.body BEGIN
     INSERT INTO notes_fts (notes_fts, rowid, body) VALUES ('delete', old.id, old.body);
     INSERT INTO notes_fts (rowid, body) VALUES (new.id, new.body);
 END;
+
+CREATE TRIGGER IF NOT EXISTS notes_fts_trash AFTER UPDATE OF deleted_at ON notes
+WHEN old.deleted_at IS NULL AND new.deleted_at IS NOT NULL BEGIN
+    INSERT INTO notes_fts (notes_fts, rowid, body) VALUES ('delete', old.id, old.body);
+END;
+
+CREATE TRIGGER IF NOT EXISTS notes_fts_restore AFTER UPDATE OF deleted_at ON notes
+WHEN old.deleted_at IS NOT NULL AND new.deleted_at IS NULL BEGIN
+    INSERT INTO notes_fts (rowid, body) VALUES (new.id, new.body);
+END;
+
+CREATE TRIGGER IF NOT EXISTS notes_fts_remove AFTER DELETE ON notes
+WHEN old.deleted_at IS NULL BEGIN
+    INSERT INTO notes_fts (notes_fts, rowid, body) VALUES ('delete', old.id, old.body);
+END;
+
+-- Replaced by the triggers above, which leave notes in Trash out of the
+-- index and skip saves that don't change the text.
+DROP TRIGGER IF EXISTS notes_fts_ai;
+DROP TRIGGER IF EXISTS notes_fts_ad;
+DROP TRIGGER IF EXISTS notes_fts_au;
 
 -- Activity log: what the person did, newest first on the History page.
 -- One row per event; saves to the same note close together are merged

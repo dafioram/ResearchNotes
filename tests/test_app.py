@@ -1110,3 +1110,13 @@ def test_label_disappears_when_last_use_removed(app):
         dbmod.update_note(n, "# A\nnothing", "2026-01-01")
         assert dbmod.get_labels_with_counts() == []
     assert _label_rows(app) == []
+
+
+def test_feed_filters_by_a_label_in_any_language(client, app):
+    with app.app_context():
+        cafe = dbmod.create_note("# Coffee\n\n#Café notes", "2026-01-01")
+        dbmod.create_note("# Tea\n\n#tea notes", "2026-01-02")
+    body = client.get("/").data.decode()
+    assert "#café" in body                                        # in the sidebar, lowercase
+    page = client.get("/?label=caf%C3%A9").data.decode()        # the label link's URL
+    assert f'data-note-id="{cafe}"' in page and "Tea" not in page
