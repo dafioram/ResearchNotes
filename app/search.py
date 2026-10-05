@@ -11,6 +11,7 @@ a quick look, operators when they're wanted:
     -#draft              not carrying it
     is:unlinked          no [[links]] in or out (what Orphans listed)
     has:file             with an attachment (what Attachments listed)
+    has:later            with a [[later]] link still to fill in
     after:2025-03        sort date on or after the start of March 2025
     before:2026          sort date before 2026 (YYYY, YYYY-MM or YYYY-MM-DD)
     1234                 a number alone also lists notes whose number
@@ -30,7 +31,8 @@ from datetime import date
 _TOKEN_RE = re.compile(r'(-?)"([^"]*)"?|(\S+)')
 _LABEL_RE = re.compile(r"#([^\W\d_](?:[\w.-]*[^\W_])?)")  # the label rule, spec §6.1
 _DATE_RE = re.compile(r"(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?")
-FILTERS = {"is:unlinked": "unlinked", "has:file": "has_file", "has:files": "has_file"}
+FILTERS = {"is:unlinked": "unlinked", "has:file": "has_file", "has:files": "has_file",
+           "has:later": "has_later"}
 
 
 @dataclass
@@ -41,6 +43,7 @@ class Query:
     exclude_labels: list[str] = field(default_factory=list)
     unlinked: bool = False
     has_file: bool = False
+    has_later: bool = False
     after: str | None = None    # sort_date >= this (YYYY-MM-DD)
     before: str | None = None   # sort_date < this
     number: str | None = None   # the whole query was this number
@@ -49,7 +52,7 @@ class Query:
     @property
     def is_empty(self) -> bool:
         return not (self.words or self.exclude_words or self.labels or self.exclude_labels
-                    or self.unlinked or self.has_file or self.after or self.before)
+                    or self.unlinked or self.has_file or self.has_later or self.after or self.before)
 
     @property
     def only_label(self) -> str | None:

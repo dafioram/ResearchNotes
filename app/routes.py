@@ -41,7 +41,7 @@ def _valid_date(value: str) -> bool:
 
 
 def _note_view_model(row):
-    existing_ids = db.existing_note_ids(md.extract_note_refs(row["body"]))
+    ref_titles = db.note_titles(md.extract_note_refs(row["body"]))
     return {
         "id": row["id"],
         "body": row["body"],
@@ -49,7 +49,7 @@ def _note_view_model(row):
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "line_count": md.line_count(row["body"]),
-        "html": md.render(row["body"], existing_ids),
+        "html": md.render(row["body"], ref_titles),
     }
 
 
@@ -60,7 +60,7 @@ def _card_items(notes, matches=None):
     every lookup is about these cards only, so a page costs the same
     however many notes there are."""
     ids = [n["id"] for n in notes]
-    existing_ids = db.existing_note_ids(
+    ref_titles = db.note_titles(
         {ref for n in notes for ref in md.extract_note_refs(n["body"])}
     )
     attachment_counts = db.get_attachment_counts(ids)
@@ -70,7 +70,7 @@ def _card_items(notes, matches=None):
             "id": n["id"],
             "sort_date": n["sort_date"],
             "line_count": md.line_count(n["body"]),
-            "snippet_html": md.render_first_line(n["body"], existing_ids),
+            "snippet_html": md.render_first_line(n["body"], ref_titles),
             "attachment_count": attachment_counts.get(n["id"], 0),
             "backlink_count": backlink_counts.get(n["id"], 0),
             # the passage that matched a search, highlighted (HTML)
@@ -158,6 +158,7 @@ def _pager(endpoint: str, page: int, total: int, **params) -> dict:
 VIEWS = [
     ("is:unlinked", "Unlinked notes", "no [[links]] in or out"),
     ("has:file", "Notes with files", "at least one attachment"),
+    ("has:later", "Links to fill in", "a [[later]] link still to fill in"),
 ]
 
 
@@ -505,6 +506,16 @@ def api_graph_ego(note_id):
     hops = request.args.get("hops", default=1, type=int)
     hops = max(1, min(hops, 5))
     return jsonify(db.get_graph_data(center_id=note_id, hops=hops))
+
+
+@bp.route("/api/notes/lookup")
+def api_note_lookup():
+    """The editor's [[ pop-up: notes matching what's typed after [[."""
+    found = db.lookup_notes(request.args.get("q", ""), exclude=request.args.get("exclude", type=int))
+    return jsonify(notes=[
+        {"id": row["id"], "title": title or "(empty note)", "sort_date": row["sort_date"]}
+        for row, title in found
+    ])
 
 
 # ---------------------------------------------------------------------------

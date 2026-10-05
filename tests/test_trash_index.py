@@ -49,9 +49,9 @@ def test_links_to_a_note_in_trash_stay_and_show_as_ghosts(app):
         dbmod.soft_delete_note(target)
         assert _rows("SELECT to_note_id FROM note_links WHERE from_note_id = ?", source) == [(target,)]
         body = dbmod.get_note(source)["body"]
-        assert "note-ref-ghost" in md.render(body, dbmod.existing_note_ids([target]))
+        assert "note-ref-ghost" in md.render(body, dbmod.note_titles([target]))
         dbmod.restore_note(target)
-        assert "note-ref-ghost" not in md.render(body, dbmod.existing_note_ids([target]))
+        assert "note-ref-ghost" not in md.render(body, dbmod.note_titles([target]))
 
 
 def test_saving_unchanged_text_leaves_the_search_index_alone(app):

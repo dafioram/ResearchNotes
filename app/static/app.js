@@ -1,6 +1,7 @@
 /*
  * The note page (note.html): View / Edit switch, saving in place, Done and
- * Cancel, the unsaved-changes guard, the label picker and attachments.
+ * Cancel, the unsaved-changes guard, the label picker, the [[ link
+ * pop-up and attachments.
  *
  * Saving never leaves the page. Save and Ctrl+S save and keep editing;
  * Done, and flipping the switch to View, save and then show View. On a
@@ -257,6 +258,231 @@
       textarea.setSelectionRange(cursor, cursor);
       refreshStatus();
     });
+  });
+
+  // ------------------------------------------------------------------
+  // [[ links: typing [[ lists notes to link to (spec §6.2). Words search
+  // titles and text, a number matches note numbers, nothing typed shows
+  // the latest notes. Picking one inserts [[id]]; the last choice is
+  // always "link later", which inserts [[later]] (with what was typed as
+  // its hint). Up/Down choose, Enter or Tab pick, Escape closes.
+  // ------------------------------------------------------------------
+
+  var REF_TRIGGER = /\[\[([^\[\]\n]{0,80})$/;
+  var popup = document.createElement("div");
+  popup.className = "ref-popup";
+  popup.id = "ref-popup";
+  popup.setAttribute("role", "listbox");
+  popup.setAttribute("aria-label", "Notes to link");
+  popup.hidden = true;
+  document.body.appendChild(popup);
+  textarea.setAttribute("aria-autocomplete", "list");
+  textarea.setAttribute("aria-controls", "ref-popup");
+
+  var lookup = {
+    start: -1,        // where the [[ being completed starts
+    query: null,      // what's typed after it
+    items: [],        // {insert, el}
+    active: 0,
+    dismissed: -1,    // Escape closes the list for this [[ only
+    seq: 0,           // drops replies to older keystrokes
+    timer: null,
+  };
+
+  function refContext() {
+    if (textarea.selectionStart !== textarea.selectionEnd) return null;
+    var caret = textarea.selectionStart;
+    var m = REF_TRIGGER.exec(textarea.value.slice(0, caret));
+    if (!m) return null;
+    return { start: caret - m[0].length, end: caret, query: m[1] };
+  }
+
+  function closeLookup() {
+    popup.hidden = true;
+    lookup.start = -1;
+    lookup.query = null;
+    lookup.items = [];
+    textarea.removeAttribute("aria-activedescendant");
+    clearTimeout(lookup.timer);
+  }
+
+  function updateLookup() {
+    var ctx = mode() === "edit" ? refContext() : null;
+    if (!ctx) lookup.dismissed = -1;
+    if (!ctx || ctx.start === lookup.dismissed) { closeLookup(); return; }
+    if (ctx.start === lookup.start && ctx.query === lookup.query) return;
+    lookup.start = ctx.start;
+    lookup.query = ctx.query;
+    clearTimeout(lookup.timer);
+    lookup.timer = setTimeout(function () { fetchLookup(ctx.query); }, 120);
+  }
+
+  function fetchLookup(query) {
+    var seq = ++lookup.seq;
+    var url = "/api/notes/lookup?q=" + encodeURIComponent(query) +
+      (state.noteId ? "&exclude=" + state.noteId : "");
+    fetch(url, { headers: { "X-Requested-With": "fetch" } })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (seq !== lookup.seq || lookup.query !== query) return;
+        showLookup(query, data.notes || []);
+      })
+      .catch(function () { showLookup(query, []); });
+  }
+
+  function laterInsert(query) {
+    var hint = query.trim();
+    if (/^later\b/i.test(hint)) hint = hint.replace(/^later\s*:?\s*/i, "");
+    if (/^\d+$/.test(hint)) hint = "";
+    return hint ? "[[later: " + hint + "]]" : "[[later]]";
+  }
+
+  function option(index, parts) {
+    var el = document.createElement("div");
+    el.className = "ref-option";
+    el.id = "ref-option-" + index;
+    el.setAttribute("role", "option");
+    el.setAttribute("data-index", index);
+    parts.forEach(function (p) {
+      var span = document.createElement("span");
+      span.className = p[0];
+      span.textContent = p[1];
+      el.appendChild(span);
+    });
+    return el;
+  }
+
+  function showLookup(query, notes) {
+    popup.textContent = "";
+    lookup.items = [];
+    notes.forEach(function (n) {
+      var el = option(lookup.items.length, [
+        ["ref-option-id", "No. " + n.id],
+        ["ref-option-title", n.title],
+        ["ref-option-date", n.sort_date],
+      ]);
+      popup.appendChild(el);
+      lookup.items.push({ insert: "[[" + n.id + "]]", el: el });
+    });
+    if (!notes.length && query.trim() && !/^later\b/i.test(query.trim())) {
+      var none = document.createElement("div");
+      none.className = "ref-empty";
+      none.textContent = "No notes match “" + query.trim() + "”.";
+      popup.appendChild(none);
+    }
+    var later = laterInsert(query);
+    var laterEl = option(lookup.items.length, [
+      ["ref-option-id", "later"],
+      ["ref-option-title", "Link later: " + later],
+    ]);
+    laterEl.classList.add("ref-option-later");
+    popup.appendChild(laterEl);
+    lookup.items.push({ insert: later, el: laterEl });
+    setActive(0);
+    popup.hidden = false;
+    placePopup();
+  }
+
+  function setActive(i) {
+    if (!lookup.items.length) return;
+    lookup.active = (i + lookup.items.length) % lookup.items.length;
+    lookup.items.forEach(function (item, j) {
+      item.el.classList.toggle("active", j === lookup.active);
+      item.el.setAttribute("aria-selected", j === lookup.active ? "true" : "false");
+    });
+    var el = lookup.items[lookup.active].el;
+    textarea.setAttribute("aria-activedescendant", el.id);
+    el.scrollIntoView({ block: "nearest" });
+  }
+
+  function choose(i) {
+    var item = lookup.items[i];
+    var ctx = refContext();
+    if (!item || !ctx) { closeLookup(); return; }
+    var end = ctx.end;
+    if (textarea.value.slice(end, end + 2) === "]]") end += 2;  // already closed
+    textarea.focus();
+    textarea.setSelectionRange(ctx.start, end);
+    // insertText keeps the editor's undo history; setRangeText is the fallback.
+    if (!document.execCommand("insertText", false, item.insert)) {
+      textarea.setRangeText(item.insert, ctx.start, end, "end");
+      refreshStatus();
+    }
+    closeLookup();
+  }
+
+  // Where the caret is on screen: a hidden copy of the editor holding the
+  // text up to the caret, styled the same, with a marker at the end.
+  var MIRRORED = ["boxSizing", "width", "borderTopWidth", "borderRightWidth", "borderBottomWidth",
+    "borderLeftWidth", "paddingTop", "paddingRight", "paddingBottom", "paddingLeft", "fontFamily",
+    "fontSize", "fontWeight", "fontStyle", "lineHeight", "letterSpacing", "wordSpacing", "tabSize",
+    "textIndent", "textTransform"];
+
+  function caretRect(pos) {
+    var style = window.getComputedStyle(textarea);
+    var mirror = document.createElement("div");
+    MIRRORED.forEach(function (p) { mirror.style[p] = style[p]; });
+    mirror.style.position = "absolute";
+    mirror.style.visibility = "hidden";
+    mirror.style.whiteSpace = "pre-wrap";
+    mirror.style.overflowWrap = "break-word";
+    mirror.style.top = "0";
+    mirror.style.left = "-9999px";
+    mirror.textContent = textarea.value.slice(0, pos);
+    var marker = document.createElement("span");
+    marker.textContent = "​";
+    mirror.appendChild(marker);
+    document.body.appendChild(mirror);
+    var box = textarea.getBoundingClientRect();
+    var rect = {
+      left: box.left + marker.offsetLeft - textarea.scrollLeft,
+      top: box.top + marker.offsetTop - textarea.scrollTop,
+      height: marker.offsetHeight,
+    };
+    document.body.removeChild(mirror);
+    return rect;
+  }
+
+  function placePopup() {
+    if (popup.hidden || lookup.start < 0) return;
+    var at = caretRect(lookup.start);
+    var width = popup.offsetWidth, height = popup.offsetHeight;
+    var left = Math.max(8, Math.min(at.left, window.innerWidth - width - 8));
+    var top = at.top + at.height + 4;
+    if (top + height > window.innerHeight - 8) top = Math.max(8, at.top - height - 4);
+    popup.style.left = left + "px";
+    popup.style.top = top + "px";
+  }
+
+  textarea.addEventListener("input", updateLookup);
+  textarea.addEventListener("click", updateLookup);
+  textarea.addEventListener("keyup", function (e) {
+    if (/^(ArrowLeft|ArrowRight|Home|End)$/.test(e.key)) updateLookup();
+  });
+  textarea.addEventListener("blur", closeLookup);
+  textarea.addEventListener("scroll", placePopup);
+  window.addEventListener("scroll", placePopup);
+  window.addEventListener("resize", placePopup);
+
+  textarea.addEventListener("keydown", function (e) {
+    if (popup.hidden) return;
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      setActive(lookup.active + (e.key === "ArrowDown" ? 1 : -1));
+    } else if ((e.key === "Enter" || e.key === "Tab") && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+      e.preventDefault();
+      choose(lookup.active);
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      lookup.dismissed = lookup.start;
+      closeLookup();
+    }
+  });
+
+  popup.addEventListener("mousedown", function (e) {
+    e.preventDefault();  // keep the cursor in the editor
+    var el = e.target.closest("[data-index]");
+    if (el) choose(+el.getAttribute("data-index"));
   });
 
   if (isMac) {

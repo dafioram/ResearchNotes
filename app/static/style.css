@@ -474,6 +474,58 @@ a:hover { color: var(--ink); }
   cursor: help;
 }
 
+/* A [[ref]] shown by its note's title, in the text's own face, with the
+   note number small after it (spec §6.2). */
+.note-ref.titled { font-family: inherit; font-size: inherit; }
+.note-ref.titled::after {
+  content: attr(data-id);
+  font-family: var(--mono);
+  font-size: 0.7em;
+  margin-left: 0.25em;
+  color: var(--ink-faint);
+}
+.note-ref.titled:hover::after { color: var(--ink); }
+
+/* [[later]]: a link still to fill in -- not broken, just waiting. */
+.note-ref-later {
+  color: var(--label-fg);
+  border-bottom: 1px dotted var(--label-fg);
+  cursor: help;
+}
+
+/* ---- the editor's [[ pop-up (app.js) ---- */
+.ref-popup {
+  position: fixed;
+  z-index: 50;
+  width: min(560px, calc(100vw - 16px));
+  max-height: 340px;
+  overflow-y: auto;
+  background: var(--card);
+  border: 1px solid var(--ink);
+  font-size: 15px;
+}
+.ref-option {
+  display: flex;
+  gap: 0.75em;
+  align-items: baseline;
+  padding: 6px 10px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--rule-soft);
+}
+.ref-option:last-child { border-bottom: 0; }
+.ref-option.active { background: var(--ink); color: var(--card); }
+.ref-option-id, .ref-option-date {
+  font-family: var(--mono);
+  font-size: 0.85em;
+  color: var(--ink-faint);
+  white-space: nowrap;
+}
+.ref-option.active .ref-option-id, .ref-option.active .ref-option-date { color: var(--rule); }
+.ref-option-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ref-option-later .ref-option-id { color: var(--label-fg); }
+.ref-option-later .ref-option-title { font-family: var(--mono); font-size: 0.9em; }
+.ref-empty { padding: 6px 10px; color: var(--ink-soft); font-style: italic; border-bottom: 1px solid var(--rule-soft); }
+
 .label-tag {
   font-family: var(--mono);
   font-size: 0.85em;

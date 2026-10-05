@@ -11,9 +11,14 @@ enough syntax for note-taking, plus two note-specific extensions:
                         "# Title" (with a space) is a header; '##label'
                         is neither -- it is left as plain text.
     [[123]]         -> a reference to note #123. Renders as a link if note
-                        123 exists (and is not deleted), otherwise as a
-                        "ghost" reference so broken links are visible at a
-                        glance.
+                        123 exists (and is not deleted) -- showing its
+                        title when the caller passes titles -- otherwise as
+                        a "ghost" reference so broken links are visible at
+                        a glance.
+    [[later]]       -> a link to fill in later, optionally with a hint:
+    [[later: hint]]     [[later: Bjork 1994]]. Any capitalization. Shown as
+                        a placeholder; it links nowhere, so it makes no
+                        backlink or graph node.
 
 Supported standard Markdown subset:
     # .. ######      ATX headers (must have a space after the hashes)
@@ -58,6 +63,8 @@ INLINE_CODE_RE = re.compile(r"`([^`\n]+)`")
 # the '#', so stays a header; in '##word' neither '#' qualifies.
 LABEL_RE = re.compile(r"(?<!\S)#([^\W\d_](?:[\w.-]*[^\W_])?)")
 NOTE_REF_RE = re.compile(r"\[\[(\d+)\]\]")
+# [[later]] / [[later: a hint]] -- a link to fill in later (spec §6.2).
+LATER_RE = re.compile(r"\[\[\s*later\s*(?::\s*([^\[\]\n]*?)\s*)?\]\]", re.IGNORECASE)
 
 _PLACEHOLDER_TMPL = "\x00{kind}{idx}\x00"
 _PLACEHOLDER_RE = re.compile(r"\x00([A-Z]+)(\d+)\x00")
@@ -110,6 +117,11 @@ def extract_note_refs(body: str) -> set[int]:
     stash = _Stash()
     stripped = _strip_code(body, stash)
     return {int(m.group(1)) for m in NOTE_REF_RE.finditer(stripped)}
+
+
+def has_later(body: str) -> bool:
+    """Whether a note has a [[later]] placeholder outside code."""
+    return bool(LATER_RE.search(_strip_code(body, _Stash())))
 
 
 def line_count(body: str) -> int:
@@ -177,11 +189,42 @@ def _autolink(m: re.Match, stash: _Stash) -> str:
     return link + _escape_text(rest)
 
 
-def _render_inline(text: str, stash: _Stash, existing_ids: set[int]) -> str:
+# Longer titles are cut in a [[ref]]; the full title is in its tooltip.
+REF_TITLE_MAX = 80
+
+
+def _ref_html(note_id: int, existing) -> str:
+    """A [[ref]]: a link if the note exists (in `existing`), shown by its
+    title when `existing` maps ids to titles; else a ghost."""
+    if note_id not in existing:
+        return f'<span class="note-ref note-ref-ghost" title="Note {note_id} does not exist">[[{note_id}]]</span>'
+    title = existing.get(note_id) if isinstance(existing, dict) else None
+    if not title:
+        return f'<a class="note-ref" href="/notes/{note_id}">[[{note_id}]]</a>'
+    shown = title if len(title) <= REF_TITLE_MAX else title[:REF_TITLE_MAX - 1].rstrip() + "\u2026"
+    return (
+        f'<a class="note-ref titled" href="/notes/{note_id}" data-id="{note_id}" '
+        f'title="No. {note_id}: {html.escape(title, quote=True)}">{html.escape(shown, quote=False)}</a>'
+    )
+
+
+def _later_html(m: re.Match) -> str:
+    # The text arrives escaped already, hint included.
+    hint = _PLACEHOLDER_RE.sub("", m.group(1) or "").strip()  # code in a hint: dropped
+    tip = "A link to fill in later" + (f": {hint}" if hint else "")
+    shown = f"[[later: {hint}]]" if hint else "[[later]]"
+    return f'<span class="note-ref note-ref-later" title="{tip.replace(chr(34), "&quot;")}">{shown}</span>'
+
+
+def _render_inline(text: str, stash: _Stash, existing_ids) -> str:
     """Render inline markdown (bold/italic/strike/links/labels/note-refs)
     on text that has ALREADY been HTML-escaped and had code spans stashed.
     Links, note-refs and labels are stashed first so the bold/italic passes
-    can't reach into a URL, a ref or a label."""
+    can't reach into a URL, a ref or a label. `existing_ids` holds the
+    referenced notes that exist: a set, or a dict of id -> title."""
+
+    # First, so a hint is shown as typed: [[later: https://...]] isn't a link.
+    text = LATER_RE.sub(lambda m: stash.store("REF", _later_html(m)), text)
 
     def _link(m: re.Match) -> str:
         label, url = m.group(1), m.group(2)
@@ -198,15 +241,7 @@ def _render_inline(text: str, stash: _Stash, existing_ids: set[int]) -> str:
     text = LINK_RE.sub(_link, text)
     text = AUTOLINK_RE.sub(lambda m: _autolink(m, stash), text)
 
-    def _ref(m: re.Match) -> str:
-        note_id = int(m.group(1))
-        if note_id in existing_ids:
-            frag = f'<a class="note-ref" href="/notes/{note_id}">[[{note_id}]]</a>'
-        else:
-            frag = f'<span class="note-ref note-ref-ghost" title="Note {note_id} does not exist">[[{note_id}]]</span>'
-        return stash.store("REF", frag)
-
-    text = NOTE_REF_RE.sub(_ref, text)
+    text = NOTE_REF_RE.sub(lambda m: stash.store("REF", _ref_html(int(m.group(1)), existing_ids)), text)
 
     # Labels are set aside before bold/italic too, so emphasis can't reach
     # into one ("#snake_case_" would otherwise lose "_case_" to italics),
@@ -264,7 +299,7 @@ OL_RE = re.compile(r"^\s*\d+\.\s+(.*)$")
 BLANK_RE = re.compile(r"^\s*$")
 
 
-def _render_lines(lines: list[str], stash: _Stash, existing_ids: set[int]) -> list[str]:
+def _render_lines(lines: list[str], stash: _Stash, existing_ids) -> list[str]:
     """Turn a list of (already HTML-escaped, code-stashed) lines into a list
     of block-level HTML strings."""
     out: list[str] = []
@@ -350,8 +385,10 @@ def _escape_text(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;")
 
 
-def render(body: str, existing_ids: set[int] | None = None) -> str:
-    """Render a full note body to HTML."""
+def render(body: str, existing_ids=None) -> str:
+    """Render a full note body to HTML. `existing_ids`: the referenced
+    notes that exist, as a set, or a dict of id -> title to show each
+    [[ref]] by its note's title (db.note_titles)."""
     existing_ids = existing_ids or set()
     stash = _Stash()
     stripped = _strip_code(body, stash)
@@ -363,7 +400,7 @@ def render(body: str, existing_ids: set[int] | None = None) -> str:
     return _resolve_placeholders(html_out, stash)
 
 
-def render_first_line(body: str, existing_ids: set[int] | None = None) -> str:
+def render_first_line(body: str, existing_ids=None) -> str:
     """Render just the first non-blank line of a note, for feed snippets."""
     for line in body.splitlines():
         if line.strip():
