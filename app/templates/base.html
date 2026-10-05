@@ -22,11 +22,15 @@
   <header class="topbar">
     <div class="topbar-inner">
       <a class="wordmark" href="{{ url_for('notes.feed') }}">Research Notes</a>
+      {# One search box, on every page; its syntax is in the feed's sidebar (search.py). #}
+      <form class="search-form top-search" method="get" action="{{ url_for('notes.feed') }}" role="search">
+        <input type="search" name="q" value="{{ query or '' }}"
+               placeholder="Search: words, &quot;a phrase&quot;, #label, is:unlinked&hellip;"
+               aria-label="Search notes" autocomplete="off">
+      </form>
       <nav class="nav">
         <a href="{{ url_for('notes.new_note_form') }}" class="primary">New note</a>
         <a href="{{ url_for('notes.random_note') }}">Random</a>
-        <a href="{{ url_for('notes.orphans') }}">Orphans</a>
-        <a href="{{ url_for('notes.attachments_tab') }}">Attachments</a>
         <a href="{{ url_for('notes.history') }}">History</a>
         <a href="{{ url_for('notes.trash') }}">Trash</a>
       </nav>

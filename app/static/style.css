@@ -203,7 +203,28 @@ a:hover { color: var(--ink); }
   margin-bottom: 18px;
 }
 
-/* ---- search (feed sidebar) ------------------------------------------ */
+/* ---- search (top bar, every page) ----------------------------------- */
+
+.top-search { flex: 1; max-width: 560px; align-self: center; }
+
+/* The passage a search matched, under a card's title; hidden with the
+   title when the card is expanded. */
+.search-match {
+  margin: 6px 0 0;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--ink-soft);
+  max-width: var(--prose-measure);
+}
+.search-match mark { background: var(--label-bg); color: var(--ink); padding: 0 1px; }
+
+.search-problem { margin: 6px 0 0; color: var(--danger); }
+
+.search-tips { margin-top: 26px; font-family: var(--mono); font-size: 13px; color: var(--ink-soft); }
+.search-tips summary { cursor: pointer; padding-bottom: 6px; border-bottom: 1px solid var(--rule); }
+.search-tips dl { margin: 8px 0 0; }
+.search-tips dt { color: var(--ink); margin-top: 8px; }
+.search-tips dd { margin: 0; color: var(--ink-faint); }
 
 .search-form {
   display: flex;

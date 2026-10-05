@@ -215,7 +215,7 @@ def _render_inline(text: str, stash: _Stash, existing_ids: set[int]) -> str:
         name = m.group(1)
         return stash.store(
             "LABELTAG",
-            f'<a class="label-tag" href="/?label={quote(name.lower())}">#{html.escape(name)}</a>',
+            f'<a class="label-tag" href="/?q={quote("#" + name.lower())}">#{html.escape(name)}</a>',
         )
 
     text = LABEL_RE.sub(_label, text)

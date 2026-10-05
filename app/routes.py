@@ -4,6 +4,7 @@ import mimetypes
 import os
 from datetime import datetime, timedelta
 from pathlib import Path
+from urllib.parse import quote_plus
 
 from flask import (
     Blueprint,
@@ -22,6 +23,7 @@ from werkzeug.utils import secure_filename
 from . import activity
 from . import db
 from . import markdown as md
+from . import search
 
 bp = Blueprint("notes", __name__)
 
@@ -51,11 +53,10 @@ def _note_view_model(row):
     }
 
 
-def _card_items(notes):
-    """Build the per-card dicts used by every feed-style listing (the
-    feed itself, Orphans, and the Attachments tab) so the three views
-    stay in lockstep rather than drifting from separately hand-rolled
-    dicts. Counts come from one grouped query each, not one per card, and
+def _card_items(notes, matches=None):
+    """Build the per-card dicts used by every list of notes (the feed,
+    with or without a search) so cards look and behave the same however a
+    list was reached. Counts come from one grouped query each, not one per card, and
     every lookup is about these cards only, so a page costs the same
     however many notes there are."""
     ids = [n["id"] for n in notes]
@@ -72,6 +73,8 @@ def _card_items(notes):
             "snippet_html": md.render_first_line(n["body"], existing_ids),
             "attachment_count": attachment_counts.get(n["id"], 0),
             "backlink_count": backlink_counts.get(n["id"], 0),
+            # the passage that matched a search, highlighted (HTML)
+            "match_html": (matches or {}).get(n["id"]),
         }
         for n in notes
     ]
@@ -151,38 +154,54 @@ def _pager(endpoint: str, page: int, total: int, **params) -> dict:
 # Feed
 # ---------------------------------------------------------------------------
 
+# Shortcuts in the feed's sidebar: each fills in its filter (spec §7).
+VIEWS = [
+    ("is:unlinked", "Unlinked notes", "no [[links]] in or out"),
+    ("has:file", "Notes with files", "at least one attachment"),
+]
+
+
 @bp.route("/")
 def feed():
-    label = request.args.get("label") or None
-    if label:
-        label = label.lower()
-    query = request.args.get("q", "").strip()
+    raw = request.args.get("q", "").strip()
+    legacy_label = request.args.get("label")
+    if legacy_label:
+        # /?label=x links from before labels moved into the search box.
+        return redirect(url_for("notes.feed", q=search.toggle(raw, "#" + legacy_label.lower())))
+    query = search.parse(raw)
 
     page = _requested_page()
     size = current_app.config["PAGE_SIZE"]
-    offset = (page - 1) * size
+    notes, total = db.search_page(query, size, (page - 1) * size)
 
-    if query:
-        # Search ranking (id-number matches first, then text relevance) is
-        # decided over the whole result set, then sliced -- so the promoted
-        # id matches always lead page 1 rather than being paged separately.
-        results = db.search_notes(query, label=label)
-        total = len(results)
-        notes = results[offset:offset + size]
-    else:
-        notes, total = db.list_notes_page(label, size, offset)
-
-    pager = _pager("notes.feed", page, total, q=query or None, label=label)
+    pager = _pager("notes.feed", page, total, q=raw or None)
     if page > pager["total_pages"]:
         return redirect(pager["last_page_url"])
 
-    labels = db.get_labels_with_counts()
+    # One link per label, so built directly: url_for for each of a few
+    # hundred labels took 5 ms. Encoded the way url_for would.
+    base = url_for("notes.feed")
+
+    def toggle_url(token):
+        q = search.toggle(raw, token)
+        return base + "?q=" + quote_plus(q, safe="!$'()*,/:;?@") if q else base
+
+    labels = [
+        {"name": l["name"], "count": l["count"], "url": toggle_url("#" + l["name"]),
+         "active": l["name"] in query.labels}
+        for l in db.get_labels_with_counts()
+    ]
+    views = [
+        {"label": label, "hint": hint, "url": toggle_url(token), "active": search.has_token(raw, token)}
+        for token, label, hint in VIEWS
+    ]
     return render_template(
         "feed.html",
-        notes=_card_items(notes),
+        notes=_card_items(notes, db.search_snippets(query, [n["id"] for n in notes])),
         labels=labels,
-        active_label=label,
-        query=query,
+        views=views,
+        query=raw,
+        problems=query.problems,
         pager=pager,
         # a just-created note to scroll to and briefly highlight (feed.js)
         focus=request.args.get("focus", type=int),
@@ -198,28 +217,15 @@ def random_note():
     return redirect(url_for("notes.view_note", note_id=note_id))
 
 
-def _paged_listing(endpoint, fetch_page, template):
-    """Shared body for the Orphans and Attachments views: fetch one page,
-    bounce out-of-range page numbers to the last page, render."""
-    page = _requested_page()
-    size = current_app.config["PAGE_SIZE"]
-    notes, total = fetch_page(size, (page - 1) * size)
-    pager = _pager(endpoint, page, total)
-    if page > pager["total_pages"]:
-        return redirect(pager["last_page_url"])
-    return render_template(template, notes=_card_items(notes), pager=pager)
-
-
+# Orphans and Attachments became search filters; their old addresses still work.
 @bp.route("/orphans")
 def orphans():
-    return _paged_listing("notes.orphans", db.get_orphan_notes_page, "orphans.html")
+    return redirect(url_for("notes.feed", q="is:unlinked"))
 
 
 @bp.route("/attachments")
 def attachments_tab():
-    return _paged_listing(
-        "notes.attachments_tab", db.get_notes_with_attachments_page, "attachments.html"
-    )
+    return redirect(url_for("notes.feed", q="has:file"))
 
 
 @bp.route("/history")

@@ -20,15 +20,26 @@ in [spec.md](spec.md).
   line. Click a card to expand it in place to the full rendered note, its
   attachments and its backlinks; its Edit button opens the note straight
   in Edit mode.
-- **Search** on the feed, full-text over note bodies (SQLite FTS5, with
-  stemming -- searching "research" also finds "researching"). Typing a
-  number additionally pulls in any note whose *id* starts with that
-  number (e.g. "100" also surfaces notes 100, 1000, 1005, ...) and puts
-  those at the top, ahead of the ordinary text matches. Combines with the
-  label filter below. The Orphans view uses the same expandable-card feed
-  component as the main feed (but isn't itself searched or filtered).
+- **Search** from the box in the top bar, on every page. Plain words are
+  enough (full-text over note bodies, SQLite FTS5, with stemming --
+  "research" also finds "researching"); each result shows the passage
+  that matched, highlighted. When you want more:
+
+  | Type | To find notes |
+  |---|---|
+  | `"spaced repetition"` | with that exact phrase |
+  | `retriev*` | with a word starting "retriev" |
+  | `-flashcards` | without that word (or `-"a phrase"`) |
+  | `#learning -#draft` | with / without a label (several labels: all of them) |
+  | `is:unlinked` | with no `[[links]]` in or out |
+  | `has:file` | with an attachment |
+  | `after:2025-03 before:2026` | by sort date (`YYYY`, `YYYY-MM` or `YYYY-MM-DD`) |
+  | `1234` | numbered 1234, 12340, ... first, then ones mentioning it |
+
+  Everything combines (`#memory is:unlinked after:2025`), and the feed's
+  sidebar has the same list under "Search tips".
 - **Desktop layout** that uses the width of the window (up to 1760px): a
-  sticky left sidebar (search and labels on the feed; page details and
+  sticky left sidebar (views and labels on the feed; page details and
   actions elsewhere) beside a main column that takes the rest. Paragraphs
   of note text wrap at about 100 characters to stay readable.
 - **One page per note** with a **View / Edit switch** that never leaves
@@ -58,16 +69,21 @@ in [spec.md](spec.md).
   link to the full list), and counted in a badge on every card. Each
   backlink shows the linking note's header plus the passage around the
   `[[link]]` itself, so you can see why it links here.
-- **Label list** in the feed's sidebar with usage counts; click a label to
-  filter the feed to just those notes.
+- **Label list** in the feed's sidebar with usage counts; clicking a label
+  adds `#label` to the search (clicking it again takes it out), so labels
+  combine with each other and with anything typed. A label inside a note
+  links to the same search.
 - **Graph of a note** (rendered with Cytoscape.js, bundled so it works
   offline), full window width: the notes related to that note, out to
   1–5 hops. Reached from the note's page only; there's no graph of
   everything. Greyed out for a note with no links. Scroll to zoom, hover
   a node for its title. Notes referenced but not found appear as dashed
   ghost nodes; edges pointing at them are colored red.
-- **Orphans view** -- notes with no incoming or outgoing `[[links]]`, useful
-  for spotting notes that never got integrated into your web of ideas.
+- **Views** in the feed's sidebar: *Unlinked notes* (`is:unlinked`, notes
+  with no incoming or outgoing `[[links]]` -- ones that never got
+  integrated into your web of ideas) and *Notes with files* (`has:file`).
+  Both are just searches, so they combine with words and labels. The old
+  `/orphans` and `/attachments` addresses redirect to them.
 - **Random note** button, in the spirit of re-reading old notes to spark
   new connections.
 - **History** -- an activity log of what you've done, newest first:
@@ -156,7 +172,7 @@ docker run -p 5000:5000 -e PORT=5000 -v "$(pwd)/data:/app/data" research-notes
 | `HOST`       | `0.0.0.0` | Interface to bind to                                |
 | `SECRET_KEY` | random  | Signs the flash-message cookie; fine to leave unset  |
 | `DATA_DIR`   | `./data`| Where `notes.db` and `uploads/` live                 |
-| `PAGE_SIZE`  | `50`    | Notes per page on the feed, Orphans and Attachments  |
+| `PAGE_SIZE`  | `50`    | Notes per page on the feed and in search results     |
 | `TZ`         | UTC     | Docker only: time zone for dates, e.g. `America/New_York` |
 | `ALLOWED_HOSTS` | none | Public domain names the app may be reached by (see below) |
 

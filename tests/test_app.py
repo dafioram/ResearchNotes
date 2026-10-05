@@ -150,23 +150,28 @@ def test_broken_note_ref_renders_as_ghost(client, app):
     assert b"note-ref-ghost" in resp.data
 
 
-def test_orphans_view_lists_unlinked_notes(client, app):
+def test_unlinked_filter_lists_unlinked_notes(client, app):
     with app.app_context():
         linked_target = dbmod.create_note("target", "2026-01-01")
         dbmod.create_note(f"links to [[{linked_target}]]", "2026-01-02")
         orphan_id = dbmod.create_note("all alone", "2026-01-03")
 
-    resp = client.get("/orphans")
+    resp = client.get("/?q=is:unlinked")
     body = resp.data.decode()
     assert f"No. {orphan_id}" in body
     assert f"No. {linked_target}" not in body
 
 
-def test_orphans_card_has_same_expand_edit_affordances_as_feed(client, app):
+def test_old_orphans_and_attachments_addresses_redirect_to_filters(client):
+    assert client.get("/orphans").headers["Location"].endswith("/?q=is:unlinked")
+    assert client.get("/attachments").headers["Location"].endswith("/?q=has:file")
+
+
+def test_filtered_cards_have_same_expand_edit_affordances_as_feed(client, app):
     with app.app_context():
         orphan_id = dbmod.create_note("all alone", "2026-01-01")
 
-    resp = client.get("/orphans")
+    resp = client.get("/?q=is:unlinked")
     body = resp.data.decode()
     assert f'data-note-id="{orphan_id}"' in body
     assert f'/notes/{orphan_id}/fragment' in body
@@ -408,7 +413,7 @@ def test_search_excludes_soft_deleted_notes(client, app):
     client.post(f"/notes/{note_id}/delete")
 
     resp = client.get("/?q=termxyz")
-    assert b"No notes matching" in resp.data
+    assert b"No notes match" in resp.data
 
 
 def test_search_empty_query_shows_full_feed_unfiltered(client, app):
@@ -467,7 +472,7 @@ def test_non_numeric_query_does_not_trigger_id_matching(client, app):
     resp = client.get("/?q=10a")
     body = resp.data.decode()
     # neither note's body contains the literal token "10a", so nothing matches
-    assert "No notes matching" in body
+    assert "No notes match" in body
 
 
 def test_search_combines_with_label_filter(client, app):
@@ -476,28 +481,31 @@ def test_search_combines_with_label_filter(client, app):
         beta_id = dbmod.create_note("shared keyword #beta", "2026-01-02")
 
     # both notes match the text search "shared" on their own...
-    resp_unfiltered = client.get("/?q=shared")
-    unfiltered_body = resp_unfiltered.data.decode()
+    unfiltered_body = client.get("/?q=shared").data.decode()
     assert f'data-note-id="{alpha_id}"' in unfiltered_body
     assert f'data-note-id="{beta_id}"' in unfiltered_body
 
-    # ...but adding label=alpha narrows it to just the alpha-tagged one
-    resp = client.get("/?q=shared&label=alpha")
-    body = resp.data.decode()
+    # ...but adding #alpha narrows it to just the alpha-tagged one
+    body = client.get("/?q=shared+%23alpha").data.decode()
     assert f'data-note-id="{alpha_id}"' in body
     assert f'data-note-id="{beta_id}"' not in body
 
-    resp2 = client.get("/?q=shared&label=beta")
-    body2 = resp2.data.decode()
+    body2 = client.get("/?q=shared+-%23alpha").data.decode()
     assert f'data-note-id="{beta_id}"' in body2
     assert f'data-note-id="{alpha_id}"' not in body2
+
+
+def test_old_label_links_redirect_into_the_search(client):
+    resp = client.get("/?q=shared&label=Alpha")
+    assert resp.status_code == 302
+    assert resp.headers["Location"].endswith("/?q=shared+%23alpha")
 
 
 # ---------------------------------------------------------------------
 # Attachments tab + attachment-count badge
 # ---------------------------------------------------------------------
 
-def test_attachments_tab_lists_only_notes_with_attachments(client, app):
+def test_file_filter_lists_only_notes_with_attachments(client, app):
     with app.app_context():
         with_file_id = dbmod.create_note("has a file", "2026-01-01")
         without_file_id = dbmod.create_note("has nothing attached", "2026-01-02")
@@ -508,36 +516,19 @@ def test_attachments_tab_lists_only_notes_with_attachments(client, app):
         content_type="multipart/form-data",
     )
 
-    resp = client.get("/attachments")
+    resp = client.get("/?q=has:file")
     assert resp.status_code == 200
     body = resp.data.decode()
     assert f'data-note-id="{with_file_id}"' in body
     assert f'data-note-id="{without_file_id}"' not in body
 
 
-def test_attachments_tab_empty_state(client):
-    resp = client.get("/attachments")
-    assert b"No notes have attachments yet." in resp.data
+def test_file_filter_empty_state(client):
+    resp = client.get("/?q=has:file")
+    assert "No notes match &ldquo;has:file&rdquo;." in resp.data.decode()
 
 
-def test_attachments_tab_card_has_same_affordances_as_feed(client, app):
-    with app.app_context():
-        note_id = dbmod.create_note("has a file", "2026-01-01")
-    client.post(
-        f"/notes/{note_id}/attachments/upload",
-        data={"file": (io.BytesIO(b"content"), "doc.txt")},
-        content_type="multipart/form-data",
-    )
-
-    resp = client.get("/attachments")
-    body = resp.data.decode()
-    assert f'/notes/{note_id}/fragment' in body
-    assert f'href="/notes/{note_id}/edit"' in body
-    assert f'href="/notes/{note_id}"' not in body
-    assert "disclosure-btn" in body
-
-
-def test_attachments_tab_excludes_soft_deleted_notes(client, app):
+def test_file_filter_excludes_soft_deleted_notes(client, app):
     with app.app_context():
         note_id = dbmod.create_note("will be deleted", "2026-01-01")
     client.post(
@@ -547,13 +538,15 @@ def test_attachments_tab_excludes_soft_deleted_notes(client, app):
     )
     client.post(f"/notes/{note_id}/delete")
 
-    resp = client.get("/attachments")
-    assert b"No notes have attachments yet." in resp.data
+    resp = client.get("/?q=has:file")
+    assert b"No notes match" in resp.data
 
 
-def test_attachments_nav_link_present(client):
-    resp = client.get("/")
-    assert b'href="/attachments"' in resp.data
+def test_views_are_sidebar_shortcuts_not_nav_links(client):
+    body = client.get("/").data.decode()
+    nav = body.split('<nav class="nav">')[1].split("</nav>")[0]
+    assert "/orphans" not in nav and "/attachments" not in nav
+    assert 'href="/?q=is:unlinked"' in body and 'href="/?q=has:file"' in body
 
 
 def test_feed_card_shows_attachment_count_badge(client, app):
@@ -589,11 +582,12 @@ def test_feed_card_no_badge_without_attachments(client, app):
         dbmod.create_note("plain note, no attachments", "2026-01-01")
 
     resp = client.get("/")
-    assert b"file<" not in resp.data
-    assert b"files<" not in resp.data
+    cards = resp.data.decode().split('class="note-list"')[1]
+    assert "file<" not in cards
+    assert "files<" not in cards
 
 
-def test_orphans_card_shows_attachment_count_badge(client, app):
+def test_filtered_card_shows_attachment_count_badge(client, app):
     with app.app_context():
         note_id = dbmod.create_note("orphan note with a file", "2026-01-01")
     client.post(
@@ -602,7 +596,7 @@ def test_orphans_card_shows_attachment_count_badge(client, app):
         content_type="multipart/form-data",
     )
 
-    resp = client.get("/orphans")
+    resp = client.get("/?q=is:unlinked")
     assert b"1 file<" in resp.data
 
 
@@ -795,14 +789,13 @@ def test_bad_page_values_fall_back_to_page_one(client, app):
         assert _card_ids(resp.data.decode()) == [ids[4], ids[3]], bad
 
 
-def test_page_links_preserve_search_and_label(client, app):
+def test_page_links_preserve_the_search(client, app):
     app.config["PAGE_SIZE"] = 2
     _make_notes(app, 5, body_fmt="shared words #topic {i}")
 
-    body = client.get("/?q=shared&label=topic").data.decode()
+    body = client.get("/?q=shared+%23topic").data.decode()
     assert "page=2" in body
-    assert "q=shared" in body.split('rel="next"')[0].rsplit("href=", 1)[1]
-    assert "label=topic" in body.split('rel="next"')[0].rsplit("href=", 1)[1]
+    assert "q=shared+%23topic" in body.split('rel="next"')[0].rsplit("href=", 1)[1]
 
 
 def test_search_pagination_keeps_id_matches_on_page_one(client, app):
@@ -820,7 +813,7 @@ def test_search_pagination_keeps_id_matches_on_page_one(client, app):
     assert len(all_ids) == 5 and len(set(all_ids)) == 5  # no dupes, none lost
 
 
-def test_orphans_and_attachments_paginate(client, app):
+def test_filters_paginate(client, app):
     app.config["PAGE_SIZE"] = 2
     ids = _make_notes(app, 3)
     for note_id in ids:
@@ -830,10 +823,11 @@ def test_orphans_and_attachments_paginate(client, app):
             content_type="multipart/form-data",
         )
 
-    for url in ["/orphans", "/attachments"]:
+    for q in ["is:unlinked", "has:file"]:
+        url = f"/?q={q}"
         assert _card_ids(client.get(url).data.decode()) == [ids[2], ids[1]], url
-        assert _card_ids(client.get(f"{url}?page=2").data.decode()) == [ids[0]], url
-        assert client.get(f"{url}?page=9").status_code == 302, url
+        assert _card_ids(client.get(f"{url}&page=2").data.decode()) == [ids[0]], url
+        assert client.get(f"{url}&page=9").status_code == 302, url
 
 
 def test_page_window_shape():
@@ -918,13 +912,16 @@ def test_backlink_row_without_context_when_link_is_in_title(client, app):
 # Desktop layout, save shortcut wiring, offline graph
 # ---------------------------------------------------------------------
 
-def test_feed_has_sidebar_with_search_and_labels(client, app):
+def test_search_box_is_in_the_top_bar_and_labels_in_the_sidebar(client, app):
     with app.app_context():
         dbmod.create_note("# A #alpha", "2026-01-01")
+    for url in ["/", "/history", "/trash", "/notes/1"]:
+        topbar = client.get(url).data.decode().split('<header class="topbar">')[1].split("</header>")[0]
+        assert 'role="search"' in topbar, url
     body = client.get("/").data.decode()
     sidebar = body.split('<aside class="sidebar">')[1].split("</aside>")[0]
-    assert 'role="search"' in sidebar
     assert 'class="label-list"' in sidebar and "#alpha" in sidebar
+    assert 'href="/?q=%23alpha"' in sidebar
 
 
 def test_graph_page_is_single_column_full_width(client, app):
@@ -939,11 +936,9 @@ def test_graph_page_is_single_column_full_width(client, app):
 def test_list_pages_use_sidebar_with_counts(client, app):
     with app.app_context():
         dbmod.create_note("alone", "2026-01-01")
-    for url, title in [("/orphans", "Orphans"), ("/attachments", "Attachments"), ("/trash", "Trash")]:
-        body = client.get(url).data.decode()
-        assert f'<h1 class="sidebar-title">{title}</h1>' in body, url
-        assert 'class="sidebar-count"' in body, url
-    assert '<p class="sidebar-count">1 note</p>' in client.get("/orphans").data.decode()
+    body = client.get("/trash").data.decode()
+    assert '<h1 class="sidebar-title">Trash</h1>' in body
+    assert 'class="sidebar-count"' in body
 
 
 def test_edit_form_fields_are_tied_to_note_form(client, app):
@@ -1118,5 +1113,5 @@ def test_feed_filters_by_a_label_in_any_language(client, app):
         dbmod.create_note("# Tea\n\n#tea notes", "2026-01-02")
     body = client.get("/").data.decode()
     assert "#café" in body                                        # in the sidebar, lowercase
-    page = client.get("/?label=caf%C3%A9").data.decode()        # the label link's URL
+    page = client.get("/?q=%23caf%C3%A9").data.decode()         # the label link's URL
     assert f'data-note-id="{cafe}"' in page and "Tea" not in page

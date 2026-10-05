@@ -134,8 +134,8 @@ tables, which behave the same.
 - Each note has **one page** with a **View / Edit switch** — see §4.3
   for everything about viewing, editing and saving.
 - **Soft delete**: a Delete button sets `deleted_at`; the note
-  disappears from the feed, search, orphans, attachments tab, and label
-  counts, and its page returns 404. While it's deleted, `[[id]]`
+  disappears from the feed, search results (every filter included), and
+  label counts, and its page returns 404. While it's deleted, `[[id]]`
   references to it render as ghosts (§6.2) and it appears as a ghost
   node in the graph (§10) — the same as a note that never existed. Its
   id is never reused, and the referencing notes' `note_links` rows are
@@ -145,22 +145,27 @@ tables, which behave the same.
   A **Trash** view (`/trash`) lists deleted notes with a Restore action
   that clears `deleted_at`.
 
-The Orphans view (§8) and Attachments tab (§9.4) reuse the exact same
-card component as the feed (a shared Jinja macro, `_macros.html`), so
-expand/collapse, Edit, the badges, and pagination behave
-identically everywhere a list of notes is shown. Neither of those two
-views is itself searchable or label-filterable — only the main feed is.
+Every list of notes is the feed, with or without a search (§7): what
+used to be separate Orphans and Attachments pages are now the filters
+`is:unlinked` (§8) and `has:file` (§9.4), so they combine with words,
+labels and dates like any other part of a search. Cards are one shared
+Jinja macro (`_macros.html`), so expand/collapse, Edit, the badges, and
+pagination behave identically wherever a card is shown.
 
 ### 4.1 Layout
 
-A two-column desktop layout under a full-width top bar:
+A two-column desktop layout under a full-width top bar. The top bar
+holds the wordmark, **the search box** (on every page, so a search is
+one step from anywhere; it submits to the feed, §7), and the nav: New
+note, Random, History, Trash (Graph is reached from a note).
 
 - **Left sidebar** (270px, sticky — it stays in view while the page
   scrolls, and scrolls on its own if it's taller than the window). Its
   contents depend on the page:
-  - Feed: the search box and the label list (§6.4).
-  - Orphans / Attachments / Trash: the page name, what it lists, and
-    how many notes it contains.
+  - Feed: Views (shortcuts that add `is:unlinked` / `has:file` to the
+    search), the label list (§6.4), and a folded "Search tips" with the
+    syntax (§7).
+  - Trash / History: the page name and what it lists.
   - A note's page: its number and the View / Edit switch; then in View
     its date and line count, in Edit the date picker, Save / Done /
     Cancel, save status, shortcut hint and labels; View graph and Delete
@@ -171,7 +176,7 @@ A two-column desktop layout under a full-width top bar:
   longer lines get hard to read; on a narrower window they simply wrap
   sooner. (This replaced an earlier fixed 760px reading column, which
   left most of a desktop monitor empty.) Because every list page uses
-  the same grid, switching between Feed, Orphans and Attachments never
+  the same grid, switching between the feed, Trash and History never
   moves the list sideways.
 - **Type**: 18px body text (serif), with every other size one step up
   from the original design to suit desktop reading distance.
@@ -186,7 +191,7 @@ A two-column desktop layout under a full-width top bar:
 
 ### 4.2 Pagination
 
-The feed, Orphans, and Attachments tab are paginated, **not** infinite-
+The feed — searched or not — is paginated, **not** infinite-
 scroll: `PAGE_SIZE` notes per page (default 50, configurable, §13),
 selected with `?page=N`. Page 1 has a clean URL (no `page` param).
 
@@ -221,13 +226,14 @@ selected with `?page=N`. Page 1 has a clean URL (no `page` param).
   (a gap of exactly one page is filled in instead). A "Showing 101–150
   of 320" summary sits below. Nothing is rendered when everything fits
   on one page.
-- Page links carry the current search text and label filter, so paging
-  works inside filtered results.
+- Page links carry the current search (`q`), so paging works inside
+  filtered results.
 - Out-of-range pages (`?page=99` when there are 7) redirect to the last
   page; non-numeric, zero, or negative values fall back to page 1.
-- Search results are ranked over the **whole** result set first and
-  then sliced, so the promoted note-number matches (§7) always lead
-  page 1 rather than being scattered across pages.
+- Search results are ranked and paged in SQL, in one ordering over the
+  **whole** result set — note-number matches (§7) first, then relevance
+  — so the promoted matches always lead page 1, and a page of a large
+  result reads only that page's notes in full.
 
 
 ### 4.3 The note page: View and Edit
@@ -397,7 +403,8 @@ What is and isn't a label:
 Rendering finds labels on the same text, before bold and italic run, so
 what shows as a label is exactly what's stored as one (emphasis used to
 reach into labels: `#snake_case_` displayed as `#snake` and an italic
-"case"). The label's link goes to `/?label=<name>`, percent-encoded.
+"case"). The label's link searches for it: `/?q=%23<name>`, percent-encoded
+(§6.4).
 These rules were tightened from "a `#` not after another `#`, then
 letters, digits, `_` and `-`" (which made `#3` a label and cut `#café`
 to `caf`). Notes saved before keep their old labels until they're saved
@@ -439,11 +446,12 @@ once, from scratch (§13).
 ### 6.4 Label list & filtering
 
 The feed's sidebar lists every label currently in use, one per row with
-its usage count, most-used first. Clicking a label filters the feed to
-only notes carrying that label (`?label=name`); clicking the active
-label clears it.
-Combines with search (§7) — both can be active at once, and the
-combination is an AND (must match the search *and* carry the label).
+its usage count, most-used first. A label is a search term (§7):
+clicking one adds `#name` to the current search, and clicking it again
+(it's highlighted while it's in the search) takes it out. So labels
+combine with each other (all must be there), with `-#name` to leave one
+out, and with words, dates and the other filters — everything in a
+search is ANDed. Old `/?label=name` links redirect to the same search.
 
 How they stay quick on a big collection (§4.2):
 
@@ -530,35 +538,66 @@ browsers repair unpredictably.
 
 ## 7. Search
 
-A search box on the feed (only the feed — not Orphans, not the
-Attachments tab). Two things happen depending on what's typed:
+One search box, in the top bar of every page (§4.1); it always lands on
+the feed, filtered (`/?q=…`). Typing words is enough for a quick look;
+the rest is there when it's wanted (`app/search.py` parses it, and the
+feed's sidebar has the same list folded under "Search tips"):
 
-1. **Full-text search** over note bodies via **SQLite FTS5** (external-
-   content table synced by insert/update/delete triggers, porter +
-   unicode61 tokenizer). Case-insensitive; stemmed (`research` also
-   matches `researching`); punctuation from `#labels` and `[[refs]]` is
-   a token boundary, so searching `zettelkasten` finds a note that only
-   contains `#zettelkasten`. Multi-word queries are split into
-   whitespace-separated tokens, each escaped as a literal quoted phrase
-   and ANDed together — user input can never be interpreted as FTS5
-   query-operator syntax. Results rank by FTS5's `bm25()` relevance.
+| Typed | Finds notes… |
+|---|---|
+| `memory retrieval` | with both words, in any form (`retrieving` too) |
+| `"spaced repetition"` | with that exact phrase |
+| `retriev*` | with a word starting `retriev` |
+| `-flashcards`, `-"rote learning"` | without that word / phrase |
+| `#learning` | carrying the label; several labels must all be there |
+| `-#draft` | not carrying the label |
+| `is:unlinked` | with no `[[links]]` in or out (§8) |
+| `has:file` (or `has:files`) | with at least one attachment (§9.4) |
+| `after:2025-03`, `before:2026` | by sort date: on/after the start of that period, before the start of that one (`YYYY`, `YYYY-MM` or `YYYY-MM-DD`) |
+| `1234` | (a number alone) whose number starts with 1234, first — see below |
+
+Every part is ANDed. Matching:
+
+1. **Words and phrases** use **SQLite FTS5** over note bodies (external-
+   content table kept current by triggers, below; porter + unicode61
+   tokenizer). Case-insensitive; stemmed (`research` also matches
+   `researching`); punctuation from `#labels` and `[[refs]]` is a token
+   boundary, so searching `zettelkasten` finds a note that only contains
+   `#zettelkasten`. Every word or phrase reaches FTS5 as a quoted phrase
+   (a trailing `*` kept as a prefix), so nothing typed — `OR`, `NEAR(`,
+   a stray quote — is ever read as FTS5's own syntax. A token with no
+   letters or digits is dropped, since it couldn't match anything.
+   Excluded words are one `NOT IN` over the index. With words to rank
+   by, results order by FTS5 relevance (`bm25`); with none (only labels,
+   filters or dates) they're in feed order.
 2. **If the entire query is digits**, notes whose id *starts with* that
-   number are additionally pulled in via a plain prefix match on
-   `CAST(id AS TEXT)` and placed **at the top**, ahead of the ordinary
-   text-relevance results — exact id match first, then the rest
-   ascending by id. Example: searching `100` promotes notes 100, 1000,
-   1005, ... to the top (in that order), with any note whose *text*
-   happens to contain "100" following after. A note that qualifies both
-   ways (its id matches the prefix *and* its text matches) is listed
-   once, in the id group. A mixed query like `100a` does **not** trigger
-   id-matching — only an all-digit query does.
+   number are also included and placed **at the top**, ahead of the
+   notes whose text contains it — exact id first, then the rest
+   ascending by id. Example: `100` lists notes 100, 1000, 1005, ...
+   first, then any note whose *text* contains "100". A note that
+   qualifies both ways is listed once, in the id group. A mixed query
+   like `100a` does **not** match ids.
+3. **Labels, `is:unlinked`, `has:file` and dates** are plain conditions
+   on the same query (`EXISTS` over `note_labels` / `note_attachments`,
+   a range on `sort_date`).
+4. **Mistakes are said, not swallowed**: something that looks like an
+   operator but isn't readable (`after:yesterday`, `after:2025-02-30`)
+   is shown under the result count, and the rest of the search still
+   runs. Other unknown `word:word` tokens are ordinary words.
 
 Search never navigates directly to a note; it always filters the feed
-list, consistent with the rest of the app (label filtering works the
-same way). Soft-deleted notes are excluded from both matching paths.
-Search composes with the label filter (§6.4) as an AND, and results are
-paginated like the rest of the feed (§4.2) — ranking happens across the
-whole result set before the page is cut.
+list. Notes in Trash are never matched. A banner above the results says
+how many notes match, with a link that clears the search. Each result
+card shows, under its first line, **the passage that matched** — up to
+about 24 words around the hits, with the matched words highlighted
+(`<mark>`) — from FTS5's `snippet()`, for just the cards on the page;
+the passage is HTML-escaped before the highlight is added, so a note's
+text can't inject markup there.
+
+Ranking, paging and counting are all done in SQLite (§4.2): nothing
+loads every match. Two cases take the feed's own quicker paths: an empty
+search is the feed, and a search that's only one `#label` is that
+label's page (§6.4).
 
 The index holds exactly the notes not in Trash, kept that way by
 triggers on `notes`: a new note is added; a save that changes the text
@@ -576,16 +615,19 @@ for backups), and the index's count of notes grew too, skewing ranking.
 `flask reindex` rebuilds the index from scratch when that's ever wanted
 (§13).
 
-## 8. Orphans
+## 8. Unlinked notes (`is:unlinked`)
 
-`/orphans` lists notes with **zero** incoming and **zero** outgoing
+The `is:unlinked` search filter (§7, also a shortcut under Views in the
+feed's sidebar) finds notes with **zero** incoming and **zero** outgoing
 `[[links]]` — notes that were never integrated into the web of ideas.
 "Connected" uses the same rule as the graph (§10): a link *from* a note
-in Trash doesn't count, so a note referenced only by trashed notes is an
-orphan (and has no graph).
-Uses the same card component as the feed (§4). This is a Zettelkasten-
-hygiene view: a note that's been sitting orphaned is a prompt to go back
-and connect it to something.
+in Trash doesn't count, so a note referenced only by trashed notes is
+unlinked (and has no graph).
+This is a Zettelkasten-hygiene view: a note that's been sitting unlinked
+is a prompt to go back and connect it to something. It was a separate
+Orphans page (`/orphans`, which now redirects to `/?q=is:unlinked`);
+as a filter it combines with the rest of a search — `#memory
+is:unlinked` is the memory notes still waiting to be connected.
 
 ## 9. Attachments
 
@@ -687,18 +729,18 @@ so unsaved text in the editor is never lost:
 - A new, never-saved note has no attachment section — the note needs an
   id first. Its sort date defaults to today (local time).
 
-### 9.4 Discovery: Attachments tab + count badge
+### 9.4 Discovery: `has:file` + count badge
 
 Two complementary ways to find notes with attachments, added together
 because they solve different problems:
 
-- **`/attachments` tab** (in the main nav, alongside Orphans/Graph/
-  Trash): a filtered feed-style view showing only notes that have at
-  least one attachment, using the same card component and query shape
-  as Orphans (`JOIN note_attachments`, ordered by sort date descending).
-  Answers "show me only these."
-- **Attachment-count badge**: every card everywhere (main feed, Orphans,
-  Attachments tab) shows a `N file(s)` meta-item alongside the id/date/
+- **`has:file`** (a search filter, §7, and a shortcut under Views in
+  the feed's sidebar): only notes with at least one attachment, in feed
+  order unless there are words to rank by, combinable with the rest of
+  a search (`has:file #paper after:2025`). Answers "show me only
+  these." It was a separate Attachments tab (`/attachments`, which now
+  redirects to `/?q=has:file`).
+- **Attachment-count badge**: every card everywhere shows a `N file(s)` meta-item alongside the id/date/
   line-count stamp whenever a note has at least one attachment — nothing
   rendered when it has none. (The `N backlinks` badge, §6.5, works the
   same way.) Answers "does this one have anything?"
@@ -716,7 +758,7 @@ system-derived label into that same namespace would either get wiped on
 the next save (since it isn't actually in the text) or need special-
 casing that breaks the "labels = literally typed in the note" invariant,
 and it would be visually indistinguishable from a real label in the
-label list. A dedicated view keeps system-derived "notes with X" facts
+label list. A dedicated filter keeps system-derived "notes with X" facts
 structurally separate from user-authored vocabulary.
 
 ## 10. Graph views
@@ -766,7 +808,7 @@ Layout and legibility:
   greyed out with "No connections yet…" on hover, and its graph address
   shows that message instead of a lone box. The button updates after
   every save, so adding a note's first link enables it without a reload.
-  The Orphans list (§8) uses the same rule.
+  `is:unlinked` (§8) uses the same rule.
 - Edges are **directed** (arrowheads matter: A→B is a different fact
   than B→A).
 - A `[[link]]` to a note that doesn't exist produces a **ghost node**
