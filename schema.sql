@@ -14,8 +14,18 @@ CREATE TABLE IF NOT EXISTS notes (
     deleted_at  TEXT                    -- ISO datetime, NULL unless soft-deleted
 );
 
-CREATE INDEX IF NOT EXISTS idx_notes_sort_date ON notes (sort_date, id);
-CREATE INDEX IF NOT EXISTS idx_notes_deleted ON notes (deleted_at);
+-- Feed order over the notes not in Trash. Every listing says "deleted_at
+-- IS NULL", so it reads its page straight off this index and stops.
+CREATE INDEX IF NOT EXISTS idx_notes_live ON notes (sort_date DESC, id DESC)
+    WHERE deleted_at IS NULL;
+-- Trash, most recently deleted first.
+CREATE INDEX IF NOT EXISTS idx_notes_trash ON notes (deleted_at)
+    WHERE deleted_at IS NOT NULL;
+-- Replaced by the two above. With an index on deleted_at alone, SQLite read
+-- and sorted every note to show a page of 50 (nearly every note matches
+-- "deleted_at IS NULL"), so it mustn't linger in an existing database.
+DROP INDEX IF EXISTS idx_notes_deleted;
+DROP INDEX IF EXISTS idx_notes_sort_date;
 
 -- Which #labels each note uses. A derived index of notes.body, re-synced on
 -- every save: a label "exists" exactly when at least one note uses it, so

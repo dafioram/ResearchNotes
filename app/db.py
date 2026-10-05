@@ -124,40 +124,82 @@ def get_note(note_id: int, include_deleted: bool = False):
     return row
 
 
-def _paged(sql: str, params: tuple, limit: int, offset: int):
-    """Run a full, ORDER BY'd listing query one page at a time. Returns
-    (rows for this page, total rows across all pages)."""
+def _marks(ids) -> str:
+    return ",".join("?" * len(ids))
+
+
+def _chunks(ids, size: int = 500):
+    """`ids` in lists small enough for one IN (...) each: older SQLite
+    builds allow only 999 parameters per statement."""
+    ids = list(ids)
+    for i in range(0, len(ids), size):
+        yield ids[i:i + size]
+
+
+def _paged(select_sql: str, count_sql: str, params: tuple, limit: int, offset: int):
+    """One page of an ORDER BY'd listing, and the total across all pages.
+    The count is a query of its own: wrapping the listing in COUNT(*) made
+    SQLite sort every row just to count them."""
     db = get_db()
-    total = db.execute(f"SELECT COUNT(*) AS c FROM ({sql})", params).fetchone()["c"]
-    rows = db.execute(f"{sql} LIMIT ? OFFSET ?", params + (limit, offset)).fetchall()
+    total = db.execute(count_sql, params).fetchone()[0]
+    rows = db.execute(f"{select_sql} LIMIT ? OFFSET ?", params + (limit, offset)).fetchall()
     return rows, total
 
 
-def _list_notes_sql(label: str | None):
-    if label:
-        return (
-            """
-            SELECT n.* FROM notes n
-            JOIN note_labels nl ON nl.note_id = n.id
-            WHERE n.deleted_at IS NULL AND nl.name = ?
-            ORDER BY n.sort_date DESC, n.id DESC
-            """,
-            (label.lower(),),
-        )
-    return (
-        "SELECT * FROM notes WHERE deleted_at IS NULL ORDER BY sort_date DESC, id DESC",
-        (),
+# Every list of notes is in feed order: sort date newest first, then id.
+# Each listing is written as "FROM notes n ... WHERE n.deleted_at IS NULL
+# ...": that condition is what lets SQLite read the order straight off the
+# live-notes index (schema.sql) and stop after one page, instead of sorting
+# every note.
+_FEED_ORDER = "ORDER BY n.sort_date DESC, n.id DESC"
+
+
+def _paged_notes(from_where: str, params: tuple, limit: int, offset: int):
+    return _paged(
+        f"SELECT n.* {from_where} {_FEED_ORDER}", f"SELECT COUNT(*) {from_where}",
+        params, limit, offset,
     )
 
 
+def _list_notes_from(label: str | None):
+    if label:
+        return (
+            "FROM notes n JOIN note_labels nl ON nl.note_id = n.id "
+            "WHERE n.deleted_at IS NULL AND nl.name = ?",
+            (label.lower(),),
+        )
+    return "FROM notes n WHERE n.deleted_at IS NULL", ()
+
+
 def list_notes(label: str | None = None):
-    sql, params = _list_notes_sql(label)
-    return get_db().execute(sql, params).fetchall()
+    from_where, params = _list_notes_from(label)
+    return get_db().execute(f"SELECT n.* {from_where} {_FEED_ORDER}", params).fetchall()
 
 
 def list_notes_page(label: str | None, limit: int, offset: int):
-    sql, params = _list_notes_sql(label)
-    return _paged(sql, params, limit, offset)
+    if not label:
+        return _paged_notes("FROM notes n WHERE n.deleted_at IS NULL", (), limit, offset)
+    db = get_db()
+    name = label.lower()
+    total = label_note_count(name)
+    live = db.execute("SELECT COUNT(*) FROM notes WHERE deleted_at IS NULL").fetchone()[0]
+    # A label's page can be read two ways, and which is quick depends on
+    # how common the label is. Walking the feed in order, checking each
+    # note's labels, stops as soon as the page is full: quick for a common
+    # label. Taking the label's notes and sorting them reads every one:
+    # quick for a rare label. A step of the walk costs about a tenth of
+    # reading a note, so walk when it should take fewer than ten steps per
+    # note the label has. (CROSS JOIN fixes the order SQLite joins in.)
+    if (offset + limit) * live < 10 * total * total:
+        tables = "notes n CROSS JOIN note_labels nl ON nl.note_id = n.id"
+    else:
+        tables = "note_labels nl CROSS JOIN notes n ON n.id = nl.note_id"
+    rows = db.execute(
+        f"SELECT n.* FROM {tables} WHERE n.deleted_at IS NULL AND nl.name = ? "
+        f"{_FEED_ORDER} LIMIT ? OFFSET ?",
+        (name, limit, offset),
+    ).fetchall()
+    return rows, total
 
 
 def _build_fts_query(raw: str) -> str:
@@ -253,10 +295,19 @@ def restore_note(note_id: int) -> None:
     db.commit()
 
 
-def get_existing_note_ids() -> set[int]:
+def existing_note_ids(ids) -> set[int]:
+    """Which of `ids` are notes that exist and aren't in Trash, i.e. which
+    [[refs]] render as links rather than ghosts. Asks about just these ids
+    -- the notes on screen reference a handful -- rather than every note."""
     db = get_db()
-    rows = db.execute("SELECT id FROM notes WHERE deleted_at IS NULL").fetchall()
-    return {r["id"] for r in rows}
+    found: set[int] = set()
+    for chunk in _chunks(ids):
+        found.update(
+            r["id"] for r in db.execute(
+                f"SELECT id FROM notes WHERE deleted_at IS NULL AND id IN ({_marks(chunk)})", chunk
+            )
+        )
+    return found
 
 
 def get_random_note_id():
@@ -271,18 +322,18 @@ def get_random_note_id():
 # target still counts: the graph shows it as a ghost), or if a note that
 # isn't in Trash links to it. The Orphans list and the note page's
 # "View graph" button use this same rule.
-_LINKED_FROM_LIVE_NOTE_SQL = """
-    SELECT l.to_note_id FROM note_links l
-    JOIN notes src ON src.id = l.from_note_id
-    WHERE src.deleted_at IS NULL
-"""
+def _linked_from_live_note(note_id_sql: str) -> str:
+    """SQL that's true when a note not in Trash links to `note_id_sql`."""
+    return f"""EXISTS (
+        SELECT 1 FROM note_links l JOIN notes src ON src.id = l.from_note_id
+        WHERE l.to_note_id = {note_id_sql} AND src.deleted_at IS NULL)"""
 
-_ORPHANS_SQL = f"""
-    SELECT n.* FROM notes n
+
+_ORPHANS_FROM = f"""
+    FROM notes n
     WHERE n.deleted_at IS NULL
-      AND n.id NOT IN (SELECT from_note_id FROM note_links)
-      AND n.id NOT IN ({_LINKED_FROM_LIVE_NOTE_SQL})
-    ORDER BY n.sort_date DESC, n.id DESC
+      AND NOT EXISTS (SELECT 1 FROM note_links WHERE from_note_id = n.id)
+      AND NOT {_linked_from_live_note("n.id")}
 """
 
 
@@ -290,7 +341,7 @@ def note_has_connections(note_id: int) -> bool:
     row = get_db().execute(
         f"""
         SELECT EXISTS (SELECT 1 FROM note_links WHERE from_note_id = ?)
-            OR ? IN ({_LINKED_FROM_LIVE_NOTE_SQL}) AS connected
+            OR {_linked_from_live_note("?")} AS connected
         """,
         (note_id, note_id),
     ).fetchone()
@@ -306,39 +357,41 @@ def feed_position(note_id: int) -> int:
     if row is None:
         return 0
     return db.execute(
-        """
-        SELECT COUNT(*) AS c FROM notes
-        WHERE deleted_at IS NULL
-          AND (sort_date > ? OR (sort_date = ? AND id > ?))
-        """,
-        (row["sort_date"], row["sort_date"], note_id),
-    ).fetchone()["c"]
+        "SELECT COUNT(*) FROM notes WHERE deleted_at IS NULL AND (sort_date, id) > (?, ?)",
+        (row["sort_date"], note_id),
+    ).fetchone()[0]
 
-_WITH_ATTACHMENTS_SQL = """
-    SELECT DISTINCT n.* FROM notes n
-    JOIN note_attachments na ON na.note_id = n.id
+
+_WITH_ATTACHMENTS_FROM = """
+    FROM notes n
     WHERE n.deleted_at IS NULL
-    ORDER BY n.sort_date DESC, n.id DESC
+      AND EXISTS (SELECT 1 FROM note_attachments na WHERE na.note_id = n.id)
 """
 
 
 def get_orphan_notes_page(limit: int, offset: int):
-    return _paged(_ORPHANS_SQL, (), limit, offset)
+    return _paged_notes(_ORPHANS_FROM, (), limit, offset)
 
 
 def get_notes_with_attachments_page(limit: int, offset: int):
-    return _paged(_WITH_ATTACHMENTS_SQL, (), limit, offset)
+    return _paged_notes(_WITH_ATTACHMENTS_FROM, (), limit, offset)
 
 
-def get_attachment_counts() -> dict:
-    """note_id -> number of attachments, for every note that has at least
-    one. Used to show a "N files" badge on feed-style cards without an
-    N+1 query per note."""
+def get_attachment_counts(note_ids) -> dict:
+    """note_id -> number of attachments, for those of `note_ids` that have
+    any. Feeds the "N files" badge: one query for a page of cards, about
+    just those cards."""
     db = get_db()
-    rows = db.execute(
-        "SELECT note_id, COUNT(*) AS c FROM note_attachments GROUP BY note_id"
-    ).fetchall()
-    return {r["note_id"]: r["c"] for r in rows}
+    counts: dict = {}
+    for chunk in _chunks(note_ids):
+        counts.update(
+            (r["note_id"], r["c"]) for r in db.execute(
+                f"SELECT note_id, COUNT(*) AS c FROM note_attachments "
+                f"WHERE note_id IN ({_marks(chunk)}) GROUP BY note_id",
+                chunk,
+            )
+        )
+    return counts
 
 
 # ---------------------------------------------------------------------------
@@ -410,20 +463,42 @@ def reindex() -> int:
     return len(rows)
 
 
+# Label counts leave out notes in Trash. Rather than look up every labelled
+# note to see whether it's in Trash, they count all of a label's rows
+# straight from the label index and subtract those of notes in Trash,
+# found through the small Trash index -- 5 ms on ten years of notes, where
+# checking each note took over 100.
+_TRASHED_LABELS = """
+    FROM notes n CROSS JOIN note_labels nl ON nl.note_id = n.id
+    WHERE n.deleted_at IS NOT NULL
+"""
+
+
 def get_labels_with_counts():
-    """Every label used by at least one non-deleted note, with how many
+    """Every label used by at least one note not in Trash, with how many
     such notes use it, most-used first."""
-    db = get_db()
-    return db.execute(
-        """
-        SELECT nl.name AS name, COUNT(*) AS count
-        FROM note_labels nl
-        JOIN notes n ON n.id = nl.note_id
-        WHERE n.deleted_at IS NULL
-        GROUP BY nl.name
-        ORDER BY count DESC, nl.name ASC
+    return get_db().execute(
+        f"""
+        SELECT name, SUM(c) AS count FROM (
+            SELECT name, COUNT(*) AS c FROM note_labels GROUP BY name
+            UNION ALL
+            SELECT nl.name, -COUNT(*) {_TRASHED_LABELS} GROUP BY nl.name
+        )
+        GROUP BY name HAVING SUM(c) > 0
+        ORDER BY count DESC, name ASC
         """
     ).fetchall()
+
+
+def label_note_count(name: str) -> int:
+    """How many notes not in Trash carry the label `name` (lowercase)."""
+    return get_db().execute(
+        f"""
+        SELECT (SELECT COUNT(*) FROM note_labels WHERE name = ?)
+             - (SELECT COUNT(*) {_TRASHED_LABELS} AND nl.name = ?)
+        """,
+        (name, name),
+    ).fetchone()[0]
 
 
 def get_backlinks(note_id: int):
@@ -440,21 +515,27 @@ def get_backlinks(note_id: int):
     ).fetchall()
 
 
-def get_backlink_counts() -> dict:
-    """note_id -> number of non-deleted notes referencing it. Counts the
-    same thing get_backlinks() lists, so a card's badge always matches
-    the list you see when you expand or open that note."""
+def get_backlink_counts(note_ids) -> dict:
+    """note_id -> number of notes not in Trash referencing it, for those of
+    `note_ids` that have any. Counts the same thing get_backlinks() lists,
+    so a card's badge always matches the list you see when you expand or
+    open that note."""
     db = get_db()
-    rows = db.execute(
-        """
-        SELECT l.to_note_id AS note_id, COUNT(*) AS c
-        FROM note_links l
-        JOIN notes n ON n.id = l.from_note_id
-        WHERE n.deleted_at IS NULL
-        GROUP BY l.to_note_id
-        """
-    ).fetchall()
-    return {r["note_id"]: r["c"] for r in rows}
+    counts: dict = {}
+    for chunk in _chunks(note_ids):
+        counts.update(
+            (r["note_id"], r["c"]) for r in db.execute(
+                f"""
+                SELECT l.to_note_id AS note_id, COUNT(*) AS c
+                FROM note_links l
+                JOIN notes n ON n.id = l.from_note_id
+                WHERE n.deleted_at IS NULL AND l.to_note_id IN ({_marks(chunk)})
+                GROUP BY l.to_note_id
+                """,
+                chunk,
+            )
+        )
+    return counts
 
 
 # ---------------------------------------------------------------------------
@@ -473,51 +554,64 @@ def _plain_snippet(body: str, length: int = 42) -> str:
     return "(empty note)"
 
 
-def _graph_edges(db):
-    return db.execute(
-        """
-        SELECT l.from_note_id, l.to_note_id
-        FROM note_links l
-        JOIN notes nf ON nf.id = l.from_note_id
-        WHERE nf.deleted_at IS NULL
-        """
-    ).fetchall()
+def _live_links_touching(db, note_ids) -> set[tuple[int, int]]:
+    """Every (from, to) link with either end in `note_ids`, counting only
+    links written in notes that aren't in Trash."""
+    links: set[tuple[int, int]] = set()
+    for chunk in _chunks(note_ids):
+        marks = _marks(chunk)
+        links.update(
+            (r[0], r[1]) for r in db.execute(
+                f"""
+                SELECT l.from_note_id, l.to_note_id FROM note_links l
+                JOIN notes nf ON nf.id = l.from_note_id
+                WHERE nf.deleted_at IS NULL AND l.from_note_id IN ({marks})
+                UNION
+                SELECT l.from_note_id, l.to_note_id FROM note_links l
+                JOIN notes nf ON nf.id = l.from_note_id
+                WHERE nf.deleted_at IS NULL AND l.to_note_id IN ({marks})
+                """,
+                chunk + chunk,
+            )
+        )
+    return links
 
 
 def get_graph_data(center_id: int, hops: int = 1):
     """The graph around one note: every note within `hops` links of it
     (following links in either direction), and the links among them.
     There is deliberately no whole-collection graph; a graph always
-    belongs to a note."""
-    db = get_db()
-    edges = [(r["from_note_id"], r["to_note_id"]) for r in _graph_edges(db)]
+    belongs to a note.
 
-    adjacency: dict[int, set[int]] = {}
-    for a, b in edges:
-        adjacency.setdefault(a, set()).add(b)
-        adjacency.setdefault(b, set()).add(a)
+    Works outward from the note one hop at a time, asking only for the
+    links of the notes just reached, rather than loading every link in
+    the database."""
+    db = get_db()
     visited = {center_id}
     frontier = {center_id}
+    links: set[tuple[int, int]] = set()
     for _ in range(max(hops, 0)):
-        next_frontier = set()
-        for node in frontier:
-            next_frontier |= adjacency.get(node, set()) - visited
-        visited |= next_frontier
-        frontier = next_frontier
+        touching = _live_links_touching(db, frontier)
+        links |= touching
+        frontier = {n for link in touching for n in link} - visited
+        visited |= frontier
         if not frontier:
             break
-    node_ids = visited
-    chosen_edges = [(a, b) for a, b in edges if a in visited and b in visited]
+    # Links between two notes of the outermost ring belong in the picture
+    # too, and the loop above never asked about those notes' links.
+    if frontier:
+        links |= _live_links_touching(db, frontier)
+    node_ids = sorted(visited)
+    chosen_edges = sorted((a, b) for a, b in links if a in visited and b in visited)
 
-    if not node_ids:
-        return {"nodes": [], "edges": []}
-
-    placeholders = ",".join("?" * len(node_ids))
-    real_rows = db.execute(
-        f"SELECT id, body FROM notes WHERE deleted_at IS NULL AND id IN ({placeholders})",
-        tuple(node_ids),
-    ).fetchall()
-    real_notes = {r["id"]: r["body"] for r in real_rows}
+    real_notes: dict[int, str] = {}
+    for chunk in _chunks(node_ids):
+        real_notes.update(
+            (r["id"], r["body"]) for r in db.execute(
+                f"SELECT id, body FROM notes WHERE deleted_at IS NULL AND id IN ({_marks(chunk)})",
+                chunk,
+            )
+        )
 
     nodes = []
     for nid in node_ids:
@@ -691,15 +785,18 @@ def activity_page(kind_filter: str, limit: int, offset: int):
     """One page of activity, newest first, with each event's note (title
     text and whether it's currently deleted). Returns (rows, total)."""
     where = ACTIVITY_FILTERS.get(kind_filter, ACTIVITY_FILTERS["all"])[0]
-    sql = f"""
+    where_sql = f"WHERE {where}" if where else ""
+    select_sql = f"""
         SELECT a.id, a.kind, a.note_id, a.created_at, a.updated_at, a.save_count,
                a.detail, n.body AS note_body, n.deleted_at AS note_deleted_at
         FROM activity a
         JOIN notes n ON n.id = a.note_id
-        {"WHERE " + where if where else ""}
+        {where_sql}
         ORDER BY a.updated_at DESC, a.id DESC
     """
-    return _paged(sql, (), limit, offset)
+    # Every entry belongs to a note that exists (entries go with their
+    # note), so counting needs no join.
+    return _paged(select_sql, f"SELECT COUNT(*) FROM activity a {where_sql}", (), limit, offset)
 
 
 def list_note_attachments(note_id: int):
