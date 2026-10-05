@@ -1,5 +1,7 @@
 -- Research Notes schema
--- SQLite. Applied once at startup if tables are missing.
+-- SQLite. Run at every startup: it only creates what's missing, and never
+-- reads or rewrites existing data. (`flask reindex` rebuilds the derived
+-- tables and the search index from note text, when that's ever wanted.)
 
 PRAGMA foreign_keys = ON;
 
@@ -19,8 +21,6 @@ CREATE INDEX IF NOT EXISTS idx_notes_deleted ON notes (deleted_at);
 -- every save: a label "exists" exactly when at least one note uses it, so
 -- there is no separate labels table and nothing to clean up. Names are
 -- stored lowercase (extraction lowercases them). Same shape as note_links.
--- (Older databases had a labels table plus note_labels(note_id, label_id);
--- init_db migrates them before this file runs.)
 CREATE TABLE IF NOT EXISTS note_labels (
     note_id     INTEGER NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
     name        TEXT NOT NULL COLLATE NOCASE,
@@ -90,11 +90,6 @@ CREATE TRIGGER IF NOT EXISTS notes_fts_au AFTER UPDATE ON notes BEGIN
     INSERT INTO notes_fts (rowid, body) VALUES (new.id, new.body);
 END;
 
--- Backfill for notes that existed before the FTS table did (or a brand
--- new database's first startup). Safe to re-run: rowids already indexed
--- are skipped rather than erroring.
-INSERT OR IGNORE INTO notes_fts (rowid, body) SELECT id, body FROM notes;
-
 -- Activity log: what the person did, newest first on the History page.
 -- One row per event; saves to the same note close together are merged
 -- into a single 'edited' row (an editing session, see db.py).
@@ -120,18 +115,3 @@ CREATE TABLE IF NOT EXISTS activity (
 
 CREATE INDEX IF NOT EXISTS idx_activity_time ON activity (updated_at, id);
 CREATE INDEX IF NOT EXISTS idx_activity_note ON activity (note_id, updated_at);
-
--- Backfill for notes that existed before the activity log did, so History
--- starts out reflecting what's already there. Safe to re-run: only notes
--- with no activity at all get a 'created' row, and only deleted notes
--- without a 'deleted' row get one.
-INSERT INTO activity (kind, note_id, created_at, updated_at)
-SELECT 'created', n.id, n.created_at, n.created_at
-FROM notes n
-WHERE NOT EXISTS (SELECT 1 FROM activity a WHERE a.note_id = n.id);
-
-INSERT INTO activity (kind, note_id, created_at, updated_at)
-SELECT 'deleted', n.id, n.deleted_at, n.deleted_at
-FROM notes n
-WHERE n.deleted_at IS NOT NULL
-  AND NOT EXISTS (SELECT 1 FROM activity a WHERE a.note_id = n.id AND a.kind = 'deleted');

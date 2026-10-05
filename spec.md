@@ -359,7 +359,8 @@ exactly. When the last note using a label stops using it, that label is
 simply gone from the list — there's no separate label record to clean
 up (§3). This is why labels and links are described as "derived" in §3 —
 the note body is the only thing a person actually edits; the index
-tables just track it.
+tables just track it. `flask reindex` does the same for every note at
+once, from scratch (§13).
 
 ### 6.4 Label list & filtering
 
@@ -469,11 +470,14 @@ Search composes with the label filter (§6.4) as an AND, and results are
 paginated like the rest of the feed (§4.2) — ranking happens across the
 whole result set before the page is cut.
 
-Migration note: the FTS index is backfilled on every startup
-(`INSERT OR IGNORE ... SELECT id, body FROM notes`), so upgrading an
-existing database created before search existed does not require a
-manual migration step — the first startup after upgrading indexes
-everything that's already there.
+The index is kept current by the triggers alone; startup never touches
+it (§13). It used to be re-filled from every note on every start, which
+re-added notes that were already indexed: matches stayed right, but the
+file grew with each restart (64 → 120 MB over a dozen restarts on a
+10-year test database), each restart rewrote a sixth of the file (churn
+for backups), and the index's count of notes grew too, skewing ranking.
+`flask reindex` rebuilds the index from scratch when that's ever wanted
+(§13).
 
 ## 8. Orphans
 
@@ -743,14 +747,14 @@ of "Edited" entries. Instead:
   Paginated like the other lists (§4.2); page links keep the filter.
 - In the top nav between Graph and Trash.
 
-### 11.4 Existing notes
+### 11.4 What the log covers
 
-The log starts when this feature was added, so on the first startup
-after updating, every existing note gets a "Created" entry at its
-`created_at` time, and every note already in Trash gets a "Deleted"
-entry at its `deleted_at` time. Edits made before then aren't known, so
-they don't appear. (This runs on every startup but only fills in what's
-missing, so it never duplicates.)
+Everything done through the app since the database was created. Nothing
+is reconstructed afterwards: a note added some other way (straight into
+the database, say) has no entries until it's next changed in the app.
+(Startup used to fill in "Created" and "Deleted" entries for notes that
+had none; that went with the rule that startup doesn't touch existing
+data, §13.)
 
 ## 12. Explicitly out of scope
 
@@ -811,22 +815,25 @@ overlooked:
   UTC. Dates shown to the person — a new note's default sort date, the
   deletion date in Trash — use the local time zone of the machine running
   the app, which for this desktop app is the user's own.
-- `schema.sql` is applied with `CREATE TABLE/INDEX/TRIGGER IF NOT
-  EXISTS` on every startup — idempotent, safe to run against an
-  existing database, which is how new tables (like `notes_fts`, added
-  after the app's initial build) get backfilled into a database that
-  predates them without a separate migration step.
-- Changing an existing table's shape needs code, since `IF NOT EXISTS`
-  won't alter a table. The one case so far is the label tables (§3):
-  before `schema.sql` runs, `init_db` checks whether `note_labels` still
-  has a `label_id` column and, if so, drops it and `labels`. After the
-  schema creates the new table, `note_labels` is refilled from the note
-  text whenever it's empty but notes exist. That check looks at the data
-  rather than remembering "a migration just happened", so an upgrade
-  interrupted between dropping and refilling repairs itself on the next
-  startup. Since this is a single-user app, the two migration functions
-  (`_migrate_label_tables`, `_rebuild_label_index_if_missing`) can be
-  deleted once the one real database has started up on this version.
+- **Startup only creates what's missing.** `schema.sql` runs on every
+  start with `CREATE TABLE/INDEX/TRIGGER IF NOT EXISTS`, and that's all:
+  startup never reads or rewrites existing data, so it stays instant
+  however many notes there are and a restart changes nothing in the file
+  (the search index, §7, and History, §11.4, used to be back-filled on
+  every start).
+- **No migration code.** A change to an existing table's shape applies to
+  new databases; an existing one keeps working with what it has. What's
+  derived from note text — labels, links and the search index — can
+  always be rebuilt from scratch with `flask reindex` (below), which is
+  how an existing database picks up a change in how labels or links are
+  read. The label tables' one-time migration from their old two-table
+  shape (§3) has been removed.
+- **`flask reindex`** (`docker compose exec research-notes flask --app app
+  reindex` under Docker) rebuilds `note_labels`, `note_links` and the
+  search index from every note's text in one transaction — about 2 s for
+  36,500 notes. `--vacuum` then compacts the file, which rewrites all of
+  it once (a full-size backup, once) and gives back space a grown search
+  index left behind. Nothing runs it automatically.
 
 ## 14. Network safety
 
