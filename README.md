@@ -73,7 +73,8 @@ in [spec.md](spec.md).
   same note within 15 minutes are grouped into one entry. Filter by kind
   in the sidebar. It records what changed, not the old text; there's no
   version history.
-- **Soft delete** with a Trash view to restore notes.
+- **Soft delete** with a Trash view to restore notes. A note in Trash
+  drops out of labels, links and search until it's restored.
 - **Attachments**, stored in their own table (many-to-many with notes, so
   one uploaded file can be linked from several notes) and content-addressed
   by SHA-256 hash so identical files are only stored once -- uploading the
@@ -168,9 +169,10 @@ on that network to reach the app (details in spec §14):
 
 ## Rebuilding labels, links and search
 
-All three are derived from the notes' text and kept current as you
-save; startup never touches them. To rebuild them from scratch, for
-example after an update that changes how labels are read:
+All three are derived from the text of the notes not in Trash and kept
+current as you save; startup never touches them. To rebuild them from
+scratch, for example after an update that changes how labels are read
+(or, once, on a database from before notes in Trash were left out):
 
 ```bash
 flask --app app reindex                                      # plain Python, from this folder
