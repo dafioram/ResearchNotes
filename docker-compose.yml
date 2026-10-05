@@ -9,6 +9,7 @@ services:
       - SECRET_KEY=${SECRET_KEY:-}
       - PAGE_SIZE=${PAGE_SIZE:-50}
       - TZ=${TZ:-UTC}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-}
     volumes:
       - ./data:/app/data
     restart: unless-stopped

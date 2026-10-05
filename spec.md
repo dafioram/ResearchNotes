@@ -12,7 +12,10 @@ rather than long-form documents organized into folders.
 
 Single-user and no-auth are deliberate, not a deferred feature: the app
 assumes localhost or a trusted network, and nothing in the design should
-add friction in service of multi-user support.
+add friction in service of multi-user support. It still refuses requests
+that a web page elsewhere could make through a browser on that network --
+changes sent from other sites, and requests addressed to public domain
+names -- in ways that are invisible in normal use (§14).
 
 **Desktop is the target platform.** The app is designed for a desktop
 browser window (roughly 1280px wide and up) with a mouse and keyboard.
@@ -301,6 +304,14 @@ a separate, non-inline feature, §9), tables, raw HTML passthrough
 entire vocabulary available — there is no way to smuggle a `<script>`
 tag through a note body).
 
+A `[text](url)` link is only made clickable when the URL is `http:`,
+`https:`, `mailto:` or has no scheme at all (a relative address, a
+`#fragment`, `//host/...`). Any other scheme — `javascript:`, `data:`,
+`vbscript:` — and any URL containing control characters (which browsers
+silently strip, so they could hide a scheme) is shown exactly as typed,
+as plain text. The URL is checked as typed and HTML-escaped once for the
+attribute, so `?a=1&b=2` reaches the browser intact.
+
 Parsing order, in the actual renderer: fenced code blocks and inline
 code spans are extracted into placeholders **before** anything else runs
 (so a `#` inside a code block is never mistaken for a label, and a
@@ -516,6 +527,18 @@ note's body on both the standalone view and the inline feed expansion,
 and as an editable list (with Remove) under the editor in Edit mode.
 This was a deliberate simplification: attachments are metadata about a
 note, not part of its markdown content.
+
+**Opening a file** (`/files/<hash>`, §14): images (PNG, JPEG, GIF, WebP,
+AVIF, BMP), PDFs, plain text, audio and video open in the browser;
+everything else downloads under its stored name. HTML and SVG are the
+reason: either can carry scripts, and opened from the app's own address
+a script could read and change every note. Every file is sent with
+`X-Content-Type-Options: nosniff`, so the browser uses the stored type
+rather than guessing from the bytes (an HTML file uploaded as
+`fake.png` is treated as an image), and with
+`Content-Security-Policy: sandbox`, so whatever opens runs no scripts
+and can't reach the app. PDFs are the one exception to the sandbox:
+browsers' built-in PDF viewers may refuse to open under it.
 
 **Attaching is by drag and drop**: in Edit mode, drop one or more files
 anywhere on the page. There is no file picker or upload button (removed
@@ -775,9 +798,10 @@ overlooked:
 
 - `run.py`: standalone launcher, reads `.env` (via `python-dotenv`),
   starts the Flask dev server. `PORT` / `HOST` / `SECRET_KEY` /
-  `DATA_DIR` / `PAGE_SIZE` are the configurable values (see
-  `.env.example`). `PAGE_SIZE` must be a positive integer; anything else
-  falls back to the default of 50.
+  `DATA_DIR` / `PAGE_SIZE` / `ALLOWED_HOSTS` are the configurable values
+  (see `.env.example`). `PAGE_SIZE` must be a positive integer; anything
+  else falls back to the default of 50. `ALLOWED_HOSTS` is only needed
+  to reach the app by a public domain name (§14).
 - `Dockerfile` + `docker-compose.yml`: `PORT` flows through to both the
   container's bound port and the host port mapping; `./data` is a bind
   mount so the SQLite file and `uploads/` survive rebuilds. `TZ` (e.g.
@@ -803,3 +827,36 @@ overlooked:
   startup. Since this is a single-user app, the two migration functions
   (`_migrate_label_tables`, `_rebuild_label_index_if_missing`) can be
   deleted once the one real database has started up on this version.
+
+## 14. Network safety
+
+The app has no login (§1), so it can't tell people apart. What it can
+tell apart is the app's own pages from *other web pages*: any page open
+in a browser on the network could otherwise send that browser to the
+app, and the browser would carry the request out. Two checks, in
+`security.py`, close that off without anything to configure or click:
+
+- **Changes must come from the app's own pages.** Every POST (or other
+  changing request) is refused with 403 when the browser reports it came
+  from another site: an `Origin` header that doesn't match the address
+  the request was sent to (default ports ignored; `null` refused), or,
+  without one, a `Sec-Fetch-Site` other than `same-origin` or `none`.
+  Requests carrying neither header — curl, scripts — are allowed: they
+  aren't a browser acting for some other page. Reading is unaffected.
+- **The address must be a local one.** Every request is refused with 400
+  unless the `Host` it was sent to is an IP address, `localhost`, a name
+  without dots (`myserver`), or a name under a suffix that can't be
+  registered publicly (`.local`, `.lan`, `.home`, `.home.arpa`,
+  `.internal`, `.corp`, `.localhost`). A public domain name there means
+  a web page has pointed its own domain at this server (DNS rebinding),
+  which would make it the same site as the app and get it past the first
+  check — able to read notes, too. Names that should work anyway go in
+  `ALLOWED_HOSTS` (comma-separated; a leading dot allows every name under
+  it, e.g. `.example.com`). The 400 page says so.
+
+Two more places a note's content could turn into code are handled where
+they render: links only become clickable for safe schemes (§5), and
+attached files that could run scripts download instead of opening (§9.3).
+
+Out of scope, deliberately: login, accounts, TLS. Docker publishes the
+port on every interface so other machines on the network can use the app.

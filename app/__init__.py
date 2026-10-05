@@ -22,18 +22,25 @@ def create_app(test_config: dict | None = None) -> Flask:
     base_dir = Path(__file__).resolve().parent.parent
     data_dir = Path(os.environ.get("DATA_DIR", base_dir / "data"))
 
+    from . import security
+
     app.config.from_mapping(
         SECRET_KEY=os.environ.get("SECRET_KEY") or secrets.token_hex(16),
         DATABASE_PATH=str(data_dir / "notes.db"),
         UPLOAD_DIR=str(data_dir / "uploads"),
         MAX_CONTENT_LENGTH=50 * 1024 * 1024,  # 50 MB per upload
         PAGE_SIZE=_positive_int(os.environ.get("PAGE_SIZE"), 50),
+        # Extra names the app may be reached by, besides IP addresses,
+        # localhost and local network names (security.py).
+        ALLOWED_HOSTS=security.parse_allowed_hosts(os.environ.get("ALLOWED_HOSTS")),
     )
 
     if test_config:
         app.config.update(test_config)
 
     Path(app.config["UPLOAD_DIR"]).mkdir(parents=True, exist_ok=True)
+
+    security.init_app(app)
 
     from . import db
     db.init_db(app)
