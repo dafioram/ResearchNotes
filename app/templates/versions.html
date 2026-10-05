@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{#
+  A note's earlier versions (spec §11.5): one per editing session, the
+  text as it was before that session changed it. Newest first.
+#}
+{% block title %}Versions of No. {{ note['id'] }} &middot; Research Notes{% endblock %}
+
+{% block sidebar %}
+  <h1 class="sidebar-title">No. {{ note['id'] }}</h1>
+  <p class="sidebar-text">Versions of &ldquo;{{ title }}&rdquo;. Each time you come back to edit a note, the text it had is kept here.</p>
+  <p class="sidebar-count">{{ versions | length }} earlier version{{ 's' if versions | length != 1 else '' }}</p>
+  <div class="sidebar-actions">
+    <a class="btn-quiet" href="{{ url_for('notes.view_note', note_id=note['id']) }}">Back to note</a>
+  </div>
+{% endblock %}
+
+{% block content %}
+  <ol class="version-list">
+    <li class="version-row current">
+      <a class="version-when" href="{{ url_for('notes.view_note', note_id=note['id']) }}">Now</a>
+      <span class="version-meta">saved {{ updated }} &middot; {{ note['sort_date'] }} &middot; {{ note['line_count'] }} line{{ 's' if note['line_count'] != 1 else '' }}</span>
+    </li>
+    {% for v in versions %}
+      <li class="version-row">
+        <a class="version-when" href="{{ v['url'] }}">{% if v['saved'] %}{{ v['saved'] }}{% else %}Before {{ v['replaced'] }}{% endif %}</a>
+        <span class="version-meta">{{ v['sort_date'] }} &middot; {{ v['line_count'] }} line{{ 's' if v['line_count'] != 1 else '' }}</span>
+        {% if v['changes'] %}
+          <p class="history-changes">
+            <span class="version-then">then, {{ v['replaced'] }}:</span>
+            {% for c in v['changes'] %}<span class="change">{{ c }}</span>{% endfor %}
+          </p>
+        {% endif %}
+      </li>
+    {% endfor %}
+  </ol>
+  {% if not versions %}
+    <div class="empty-state">No earlier versions yet. They start the first time you come back to edit this note.</div>
+  {% endif %}
+{% endblock %}

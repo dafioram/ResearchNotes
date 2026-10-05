@@ -126,7 +126,7 @@ def test_saves_within_window_merge_and_measure_from_session_start(app, clock):
     assert edits[0]["updated_at"] == "2026-09-24T13:20:00+00:00"
 
 
-def test_saves_after_window_start_a_new_entry_and_old_text_is_dropped(app, clock):
+def test_saves_after_window_start_a_new_entry_and_each_keeps_its_starting_text(app, clock):
     note_id = create(app, "# T\nbase")
     clock.advance(60)
     edit(app, note_id, "# T\nbase\nfirst")
@@ -134,20 +134,21 @@ def test_saves_after_window_start_a_new_entry_and_old_text_is_dropped(app, clock
     edit(app, note_id, "# T\nbase\nfirst\nsecond")
     edits = [e for e in events(app, note_id) if e["kind"] == "edited"]
     assert len(edits) == 2
-    assert edits[0]["base_body"] is None       # closed session keeps no old text
+    # each session's starting text is a version of the note (spec §11.5)
+    assert edits[0]["base_body"] == "# T\nbase"
     assert edits[1]["base_body"] == "# T\nbase\nfirst"
     assert edits[1]["detail"]["lines_added"] == 1
 
 
-def test_open_session_text_is_dropped_once_any_later_save_happens(app, clock):
+def test_a_save_to_one_note_leaves_other_notes_entries_alone(app, clock):
     a = create(app, "# A")
     b = create(app, "# B")
     clock.advance(60)
     edit(app, a, "# A\nmore")
+    before = [dict(e) for e in events(app, a)]
     clock.advance(30)
-    edit(app, b, "# B\nmore")   # a save to another note also clears A's expired session
-    [a_edit] = [e for e in events(app, a) if e["kind"] == "edited"]
-    assert a_edit["base_body"] is None
+    edit(app, b, "# B\nmore")
+    assert [dict(e) for e in events(app, a)] == before
 
 
 def test_edit_reverted_within_session_disappears(app, clock):

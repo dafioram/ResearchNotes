@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{#
+  One earlier version of a note (spec §11.5): as it read, what has changed
+  since, and Restore -- which saves it as a new edit, so the text it
+  replaces becomes a version in turn.
+#}
+{% set when = version['saved'] or ('before ' ~ version['replaced']) %}
+{% block title %}No. {{ note_id }}, {{ when }} &middot; Research Notes{% endblock %}
+
+{% block sidebar %}
+  <h1 class="sidebar-title">No. {{ note_id }}</h1>
+  <p class="sidebar-text">The version from {{ when }}.</p>
+  <div class="meta">
+    <span class="meta-item">{{ version['sort_date'] }}</span>
+    <span class="meta-item">{{ version['line_count'] }} line{{ 's' if version['line_count'] != 1 else '' }}</span>
+  </div>
+  <div class="sidebar-actions">
+    {% if is_current %}
+      <p class="sidebar-text">The note reads like this now.</p>
+    {% else %}
+      <form method="post" action="{{ url_for('notes.restore_version', note_id=note_id, version_id=version['id']) }}">
+        <button type="submit" class="btn">Restore this version</button>
+      </form>
+      <p class="hint">The current text is kept as a version, so this can be undone.</p>
+    {% endif %}
+    <a class="btn-quiet" href="{{ url_for('notes.note_versions', note_id=note_id) }}">All versions</a>
+    <a class="btn-quiet" href="{{ url_for('notes.view_note', note_id=note_id) }}">Back to note</a>
+  </div>
+{% endblock %}
+
+{% block content %}
+  <div class="note-body version-body">
+    {{ html | safe }}
+  </div>
+
+  {% if not is_current %}
+  <details class="section version-diff" open>
+    <summary class="section-title">What&rsquo;s different now</summary>
+    {% if date_changed %}
+      <p class="diff-date">Sort date {{ version['sort_date'] }} &rarr; {{ current_date }}</p>
+    {% endif %}
+    {% if diff %}
+      <pre class="diff">{% for kind, text in diff %}<span class="diff-{{ kind }}">{{ {'add': '+ ', 'remove': '- ', 'same': '  ', 'gap': ''}[kind] }}{{ text }}</span>{% endfor %}</pre>
+    {% endif %}
+  </details>
+  {% endif %}
+{% endblock %}

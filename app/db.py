@@ -105,7 +105,10 @@ def create_note(body: str, sort_date: str) -> int:
     return note_id
 
 
-def update_note(note_id: int, body: str, sort_date: str) -> None:
+def update_note(note_id: int, body: str, sort_date: str, restored_from: str | None = None) -> None:
+    """Save a note's text and date. `restored_from` (the saved-at time of
+    a version being restored) makes the save its own editing session, so
+    the text it replaces becomes a version too (spec §11.5)."""
     db = get_db()
     before = db.execute("SELECT body, sort_date FROM notes WHERE id = ?", (note_id,)).fetchone()
     ts = now_iso()
@@ -115,7 +118,7 @@ def update_note(note_id: int, body: str, sort_date: str) -> None:
     )
     _sync_note_metadata(note_id, body)
     if before is not None:
-        _log_edit(note_id, before["body"], before["sort_date"], body, sort_date, ts)
+        _log_edit(note_id, before["body"], before["sort_date"], body, sort_date, ts, restored_from)
     db.commit()
 
 
@@ -743,7 +746,7 @@ def _log_event(kind: str, note_id: int, ts: str, detail: dict | None = None) -> 
 
 
 def _log_edit(note_id: int, old_body: str, old_date: str,
-              new_body: str, new_date: str, ts: str) -> None:
+              new_body: str, new_date: str, ts: str, restored_from: str | None = None) -> None:
     """Record a save as part of an editing session.
 
     Saves to the same note within activity.SESSION_WINDOW of the previous
@@ -753,18 +756,14 @@ def _log_edit(note_id: int, old_body: str, old_date: str,
     it again nets out to nothing. A session whose net change is nothing is
     removed. Edits right after creating a note fold into its "created"
     entry. A save that changes nothing that counts is not logged at all.
+
+    The starting text stays on the entry after the session ends: it's the
+    note's previous version (spec §11.5). Restoring a version always
+    starts a session of its own, so the text it replaces is kept too.
     """
     db = get_db()
 
-    # Sessions that can no longer be extended don't need their starting
-    # text any more; drop it so old versions don't accumulate.
-    db.execute(
-        "UPDATE activity SET base_body = NULL, base_sort_date = NULL "
-        "WHERE base_body IS NOT NULL AND updated_at < ?",
-        (activity.session_cutoff(ts),),
-    )
-
-    last = db.execute(
+    last = None if restored_from else db.execute(
         """
         SELECT * FROM activity
         WHERE note_id = ? AND kind IN ('created', 'edited')
@@ -788,6 +787,9 @@ def _log_edit(note_id: int, old_body: str, old_date: str,
             if detail is None:
                 db.execute("DELETE FROM activity WHERE id = ?", (last["id"],))
             else:
+                restored = json.loads(last["detail"] or "{}").get("restored_from")
+                if restored:
+                    detail["restored_from"] = restored
                 db.execute(
                     """
                     UPDATE activity SET updated_at = ?, save_count = save_count + 1,
@@ -801,6 +803,8 @@ def _log_edit(note_id: int, old_body: str, old_date: str,
     detail = activity.edit_detail(old_body, old_date, new_body, new_date)
     if detail is None:
         return
+    if restored_from:
+        detail["restored_from"] = restored_from
     db.execute(
         """
         INSERT INTO activity (kind, note_id, created_at, updated_at, detail,
@@ -829,7 +833,8 @@ def activity_page(kind_filter: str, limit: int, offset: int):
     where_sql = f"WHERE {where}" if where else ""
     select_sql = f"""
         SELECT a.id, a.kind, a.note_id, a.created_at, a.updated_at, a.save_count,
-               a.detail, n.body AS note_body, n.deleted_at AS note_deleted_at
+               a.detail, a.base_body IS NOT NULL AS has_version,
+               n.body AS note_body, n.deleted_at AS note_deleted_at
         FROM activity a
         JOIN notes n ON n.id = a.note_id
         {where_sql}
@@ -838,6 +843,58 @@ def activity_page(kind_filter: str, limit: int, offset: int):
     # Every entry belongs to a note that exists (entries go with their
     # note), so counting needs no join.
     return _paged(select_sql, f"SELECT COUNT(*) FROM activity a {where_sql}", (), limit, offset)
+
+
+def note_versions(note_id: int) -> list[dict]:
+    """A note's earlier versions, newest first (spec §11.5). Each editing
+    session kept the note as it was when the session began -- the text as
+    the previous session (or creating it) left it. So each version has:
+    `id` (its session's entry), `body` and `sort_date`, `saved_at` (when
+    that text was last saved: the end of the session before, or None if
+    unknown), `replaced_at` (when the next session began) and that
+    session's `detail` (what it changed)."""
+    rows = get_db().execute(
+        """
+        SELECT id, updated_at, created_at, detail, save_count, base_body, base_sort_date
+        FROM activity WHERE note_id = ? AND kind IN ('created', 'edited')
+        ORDER BY updated_at, id
+        """,
+        (note_id,),
+    ).fetchall()
+    versions = []
+    for before, row in zip([None] + rows[:-1], rows):
+        if row["base_body"] is None:
+            continue
+        versions.append({
+            "id": row["id"],
+            "body": row["base_body"],
+            "sort_date": row["base_sort_date"],
+            "saved_at": before["updated_at"] if before else None,
+            "replaced_at": row["created_at"],
+            "detail": row["detail"],
+            "save_count": row["save_count"],
+        })
+    versions.reverse()
+    return versions
+
+
+def get_version(note_id: int, version_id: int) -> dict | None:
+    return next((v for v in note_versions(note_id) if v["id"] == version_id), None)
+
+
+def restore_version(note_id: int, version_id: int) -> bool:
+    """Save an earlier version as the note's text and date: an edit of its
+    own, so the text it replaces becomes a version and can be restored in
+    turn. False if there's no such version, or it matches the note now."""
+    version = get_version(note_id, version_id)
+    note = get_note(note_id)
+    if version is None or note is None:
+        return False
+    if (version["body"], version["sort_date"]) == (note["body"], note["sort_date"]):
+        return False
+    update_note(note_id, version["body"], version["sort_date"],
+                restored_from=version["saved_at"] or version["replaced_at"])
+    return True
 
 
 def list_note_attachments(note_id: int):

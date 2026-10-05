@@ -169,7 +169,7 @@ note, Random, History, Trash (Graph is reached from a note).
   - Trash / History: the page name and what it lists.
   - A note's page: its number and the View / Edit switch; then in View
     its date and line count, in Edit the date picker, Save / Done /
-    Cancel, save status and shortcut hint; View graph and Delete in both
+    Cancel, save status and shortcut hint; View graph, Versions and Delete in both
     (§4.3).
 - **Main column**: all the width beside the sidebar — cards, lists,
   headings and the editor use it fully. Only **paragraphs of note text**
@@ -260,7 +260,7 @@ leaves the page.
   Ctrl+S hint. Labels and links are suggested in the text as you type
   them (§6.1, §6.2). The attachment editor is under the text (§9.3). Opening a page
   in Edit puts the cursor in the editor.
-- **View graph** and **Delete** are in the sidebar in both modes. View
+- **View graph**, **Versions** (§11.5) and **Delete** are in the sidebar in both modes. View
   graph is greyed out, explaining "No connections yet" on hover, when the
   note has no links in or out (§10).
 
@@ -301,7 +301,7 @@ today (local time).
 - The **first Save** (or Ctrl+S) creates the note and keeps you editing.
   The page becomes that note's page in place: its number appears, the
   address becomes `/notes/<id>/edit`, the switch appears, and the
-  attachment editor, View graph and Delete arrive in the same JSON reply
+  attachment editor, View graph, Versions and Delete arrive in the same JSON reply
   — so files can be attached right away.
 - **Done** saves and returns to the **feed, landing on the new note**: the
   feed opens on the page the note falls on in the default order (its
@@ -904,7 +904,8 @@ here.
 
 An edit's changes: lines added and removed, labels added and removed,
 `[[links]]` added and removed ("now links to [[5]]", "no longer links to
-[[3]]"), a changed sort date, and how many saves were grouped into it.
+[[3]]"), a changed sort date, how many saves were grouped into it, and
+"restored the version from …" for a restore (§11.5).
 
 Not recorded: viewing, searching, filtering, the graph — anything that
 doesn't change a note. A save that changes nothing that counts isn't
@@ -933,10 +934,11 @@ of "Edited" entries. Instead:
 - Saves within 15 minutes of **creating** a note fold into its "Created"
   entry, since writing a new note usually means several saves.
 - To measure against the session's start, the entry holds the note's
-  starting text (`base_body`) while the session can still be extended.
-  It's cleared as soon as the session closes (checked on every save), so
-  old versions don't accumulate. It's never shown anywhere; this is an
-  activity log, not version history (§12).
+  starting text (`base_body`, `base_sort_date`). It stays after the
+  session closes: it's the note's previous version (§11.5). (It used to
+  be cleared once the session closed, by an update that every save ran
+  over the whole log — 13 ms a save at ten years; saving now takes
+  about 5 ms.)
 - The entry's time is its last save.
 
 ### 11.3 The page
@@ -946,7 +948,8 @@ of "Edited" entries. Instead:
   stored in UTC (§13).
 - Each entry links to its note. A note that's currently deleted is shown
   greyed and unlinked (its page would 404), with an "in Trash" link to the
-  Trash view.
+  Trash view. An edit also links to the note as it was before it ("see
+  before", §11.5).
 - Sidebar filters: All activity, New notes, Edits, Link changes (edits
   that added or removed a `[[link]]`), Attachments, Deleted & restored.
   Paginated like the other lists (§4.2); page links keep the filter.
@@ -960,6 +963,40 @@ the database, say) has no entries until it's next changed in the app.
 (Startup used to fill in "Created" and "Deleted" entries for notes that
 had none; that went with the rule that startup doesn't touch existing
 data, §13.)
+
+### 11.5 Versions
+
+Every editing session (§11.2) keeps the note as it was when the session
+began — which is the note as the previous session, or creating it, left
+it. So a note has **one version per sitting**, however often you saved:
+come back to a note three times and it has three earlier versions.
+Nothing is stored for a note that's never edited after the sitting it
+was created in.
+
+- **Versions page** (`/notes/<id>/versions`, the *Versions* button on a
+  note in View and Edit): "Now", then each earlier version newest first
+  — when it was last saved, its sort date and line count, and what the
+  next sitting changed ("then, 3 Oct 2026, 2:14 PM: +6 / −7 lines, added
+  #memory").
+- **A version** (`/notes/<id>/versions/<entry id>`): the text rendered as
+  the note would be (refs by title, §6.2), and "What's different now": a
+  line diff from it to the current text, plus the sort date if that
+  changed.
+- **Restore** saves the version's text and sort date as an edit. It
+  always starts a session of its own — even within 15 minutes of the
+  last save — so the text it replaces becomes the newest version, and
+  restoring that undoes it. History shows it as an edit, "restored the
+  version from …". A version identical to the note now can't be
+  restored (nothing would change). Labels, links and search follow the
+  restored text like any save (§6.3).
+- **Size**: one copy of a note per sitting. At 10 notes a day, with a
+  third of notes edited in a later sitting, ten years of versions add
+  about 10 MB (58.6 → 68.4 MB in `scripts/benchmark.py`'s data); each
+  page reads only its own note's entries (`idx_activity_note`), about
+  2 ms.
+- Versions go with their note: a note in Trash has none to show (its
+  pages 404), and they're back when it's restored. Databases from before
+  this keep no versions for sessions that had already closed.
 
 ## 12. Explicitly out of scope
 
@@ -1003,10 +1040,9 @@ overlooked:
 - **Phone / narrow-window layouts.** Desktop is the target (§1).
 - **Keyboard shortcuts beyond Ctrl+S.** Considered (search, moving
   between cards, expand, edit, new note) and left out by choice.
-- **Version history (viewing or restoring old versions).** The History
-  page (§11) records *that* a note changed and roughly how, but not the
-  old text: every save overwrites the note body in place. Decided
-  explicitly when History was added: activity log only.
+- **A version for every save.** Versions are per sitting (§11.5): saving
+  every few seconds while writing would otherwise keep hundreds of
+  near-identical copies.
 
 ## 13. Configuration & deployment
 

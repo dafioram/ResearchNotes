@@ -100,8 +100,13 @@ in [spec.md](spec.md).
   "Created No. 11", "Edited No. 6: +6 / −7 lines, added #memory, now
   links to [[5]]", deleted/restored, files attached/removed. Saves to the
   same note within 15 minutes are grouped into one entry. Filter by kind
-  in the sidebar. It records what changed, not the old text; there's no
-  version history.
+  in the sidebar.
+- **Versions** -- each time you come back to edit a note, the text it had
+  is kept: one version per sitting, however often you save. A note's
+  *Versions* button lists them; each shows the old text and what's
+  changed since, and **Restore** brings it back as a new edit (so the
+  text it replaces is kept too, and a restore can be undone). About 1 MB
+  a year at 10 notes a day.
 - **Soft delete** with a Trash view to restore notes. A note in Trash
   drops out of labels, links and search until it's restored.
 - **Attachments**, stored in their own table (many-to-many with notes, so

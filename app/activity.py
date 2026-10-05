@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import difflib
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from . import markdown as md
 
@@ -69,15 +69,21 @@ def within_session(last_iso: str, now_iso: str) -> bool:
     return datetime.fromisoformat(now_iso) - datetime.fromisoformat(last_iso) <= SESSION_WINDOW
 
 
-def session_cutoff(now_iso: str) -> str:
-    """Timestamp before which an editing session can no longer be extended."""
-    cutoff = datetime.fromisoformat(now_iso) - SESSION_WINDOW
-    return cutoff.astimezone(timezone.utc).isoformat(timespec="seconds")
-
-
 # ---------------------------------------------------------------------------
 # Display
 # ---------------------------------------------------------------------------
+
+def clock_time(dt: datetime) -> str:
+    """12-hour local time, e.g. "9:05 AM" (no %-I: not available on Windows)."""
+    local = dt.astimezone()
+    return f"{local.hour % 12 or 12}:{local:%M} {'AM' if local.hour < 12 else 'PM'}"
+
+
+def local_stamp(iso_utc: str) -> str:
+    """A stored UTC time as local date and time, e.g. "3 Oct 2026, 2:14 PM"."""
+    local = datetime.fromisoformat(iso_utc).astimezone()
+    return f"{local.day} {local:%b %Y}, {clock_time(local)}"
+
 
 VERBS = {
     "created": "Created",
@@ -96,6 +102,8 @@ def describe(kind: str, detail_json: str, save_count: int) -> dict:
     detail = json.loads(detail_json or "{}")
     changes: list[str] = []
     if kind == "edited":
+        if detail.get("restored_from"):
+            changes.append(f"restored the version from {local_stamp(detail['restored_from'])}")
         a, r = detail.get("lines_added", 0), detail.get("lines_removed", 0)
         if a and r:
             changes.append(f"+{a} / −{r} lines")
