@@ -336,16 +336,8 @@ _WITH_ATTACHMENTS_SQL = """
 """
 
 
-def get_orphan_notes():
-    return get_db().execute(_ORPHANS_SQL).fetchall()
-
-
 def get_orphan_notes_page(limit: int, offset: int):
     return _paged(_ORPHANS_SQL, (), limit, offset)
-
-
-def get_notes_with_attachments():
-    return get_db().execute(_WITH_ATTACHMENTS_SQL).fetchall()
 
 
 def get_notes_with_attachments_page(limit: int, offset: int):
