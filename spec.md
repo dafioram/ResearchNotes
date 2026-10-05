@@ -179,9 +179,25 @@ selected with `?page=N`. Page 1 has a clean URL (no `page` param).
 - Chosen over "load everything" (the original behavior) because every
   card renders markdown for its snippet, so an unpaginated feed's cost
   and page weight grow linearly with note count.
-- Implemented with `LIMIT`/`OFFSET` plus a `COUNT(*)` over the same
-  query. Keyset/cursor pagination would scale further but can't jump to
-  an arbitrary page number; offset is plenty for one person's notes.
+- Implemented with `LIMIT`/`OFFSET` plus a separate `COUNT(*)` with the
+  same conditions (wrapping the ordered listing in a count made SQLite
+  sort everything just to count it). Keyset/cursor pagination would
+  scale further but can't jump to an arbitrary page number; offset is
+  plenty for one person's notes.
+- **A page costs the same however many notes there are.** The order
+  comes straight off an index of the notes not in Trash
+  (`idx_notes_live`, `sort_date DESC, id DESC WHERE deleted_at IS NULL`),
+  so a page is read in order and the scan stops after it; every listing
+  says `deleted_at IS NULL` so SQLite can use it. (An earlier index on
+  `deleted_at` alone led SQLite to read and sort every note, bodies and
+  all, to show 50; it's dropped at startup.) Everything else on a page —
+  badges (§6.5, §9.4) and whether each `[[ref]]` exists (§6.2) — is
+  looked up for just the notes shown. Measured with
+  `scripts/benchmark.py` on ten years of notes at 10 a day (36,500): the
+  feed in 14 ms and a note's page in 7 ms, which had taken 255 and
+  107 ms; at 100,000 notes, 38 and 17 ms (from 711 and 279). What still
+  grows with the collection is small: the pager's count, and listing the
+  labels in the sidebar.
 - Navigation: Previous / Next plus page numbers — always the first and
   last page, and two either side of the current one, with `…` for gaps
   (a gap of exactly one page is filled in instead). A "Showing 101–150
@@ -348,7 +364,9 @@ References another note by id, from anywhere in the text. Renders as a
 link (`/notes/<id>`) if that note exists and isn't soft-deleted;
 otherwise as a **ghost** — visually distinct (dashed, muted-red
 underline, a `title` tooltip) so a broken reference is visible at a
-glance instead of silently swallowed or erroring.
+glance instead of silently swallowed or erroring. Whether a referenced
+note exists is looked up for just the ids the shown notes reference
+(`db.existing_note_ids`), not by loading every note's id.
 
 ### 6.3 Resyncing on save
 
@@ -371,6 +389,22 @@ label clears it.
 Combines with search (§7) — both can be active at once, and the
 combination is an AND (must match the search *and* carry the label).
 
+How they stay quick on a big collection (§4.2):
+
+- **Counts** leave out notes in Trash without looking up every labelled
+  note: each label's rows are counted straight from the label index,
+  minus the rows of notes in Trash (found through the small Trash
+  index). On ten years of notes that's 5 ms; checking each note's row
+  took over 100, on every feed and note page.
+- **A label's page** can be read two ways, and the quicker one depends on
+  how common the label is. Walking the feed in order and checking each
+  note's labels stops as soon as the page is full — quick for a common
+  label. Taking the label's notes and sorting them reads every one —
+  quick for a rare label. A step of the walk costs about a tenth of
+  reading a note, so `list_notes_page` walks when that should take fewer
+  than ten steps per note the label has, and fetches by label otherwise.
+  Both give the same notes in the same order.
+
 ### 6.5 Backlinks
 
 The notes that reference a note via `[[id]]` — a plain reverse lookup
@@ -387,7 +421,8 @@ places:
   The cap keeps a heavily-linked hub note from turning one expanded card
   into a wall of hundreds of rows in the middle of the feed.
 - **A badge on every card** (`N backlinks`), counted with one grouped
-  query per page (`db.get_backlink_counts()`), not one per card. The
+  query for the notes on the page (`db.get_backlink_counts(ids)`), not
+  one per card and not for every note. The
   count is defined identically to the list — non-deleted referencing
   notes, each counted once — so the badge always matches what you see
   when you expand or open the note. A reference from a soft-deleted
@@ -606,8 +641,9 @@ because they solve different problems:
   rendered when it has none. (The `N backlinks` badge, §6.5, works the
   same way.) Answers "does this one have anything?"
   without needing to open a separate view. Counts are fetched in one
-  grouped query (`db.get_attachment_counts()`, `note_id -> count`) per
-  page render, not one query per note.
+  grouped query for the notes on the page
+  (`db.get_attachment_counts(ids)`, `note_id -> count`), not one query
+  per note.
 
 An explicit design choice made alongside this: attachments are **not**
 represented as an automatic/synthetic label (e.g. an implicit
@@ -633,6 +669,12 @@ Rendered with Cytoscape.js (bundled, §2), reading from a small JSON
 endpoint (`/api/graph/<id>`). The canvas takes the full
 window width and height below the top bar; scroll zooms, dragging the
 background pans, and nodes can be dragged.
+
+The endpoint works outward from the note one hop at a time, asking only
+for the links of the notes it has just reached (and finally for links
+among the outermost ring), rather than loading every link in the
+database — so a 1-hop graph costs the same in a large collection as in
+a small one.
 
 Layout and legibility:
 
@@ -816,8 +858,10 @@ overlooked:
   deletion date in Trash — use the local time zone of the machine running
   the app, which for this desktop app is the user's own.
 - **Startup only creates what's missing.** `schema.sql` runs on every
-  start with `CREATE TABLE/INDEX/TRIGGER IF NOT EXISTS`, and that's all:
-  startup never reads or rewrites existing data, so it stays instant
+  start with `CREATE TABLE/INDEX/TRIGGER IF NOT EXISTS` (plus
+  `DROP INDEX IF EXISTS` for two indexes a newer one replaced, §4.2),
+  and that's all: startup never reads or rewrites existing data, so it
+  stays instant
   however many notes there are and a restart changes nothing in the file
   (the search index, §7, and History, §11.4, used to be back-filled on
   every start).

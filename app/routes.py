@@ -39,7 +39,7 @@ def _valid_date(value: str) -> bool:
 
 
 def _note_view_model(row):
-    existing_ids = db.get_existing_note_ids()
+    existing_ids = db.existing_note_ids(md.extract_note_refs(row["body"]))
     return {
         "id": row["id"],
         "body": row["body"],
@@ -55,10 +55,15 @@ def _card_items(notes):
     """Build the per-card dicts used by every feed-style listing (the
     feed itself, Orphans, and the Attachments tab) so the three views
     stay in lockstep rather than drifting from separately hand-rolled
-    dicts. Counts come from one grouped query each, not one per card."""
-    existing_ids = db.get_existing_note_ids()
-    attachment_counts = db.get_attachment_counts()
-    backlink_counts = db.get_backlink_counts()
+    dicts. Counts come from one grouped query each, not one per card, and
+    every lookup is about these cards only, so a page costs the same
+    however many notes there are."""
+    ids = [n["id"] for n in notes]
+    existing_ids = db.existing_note_ids(
+        {ref for n in notes for ref in md.extract_note_refs(n["body"])}
+    )
+    attachment_counts = db.get_attachment_counts(ids)
+    backlink_counts = db.get_backlink_counts(ids)
     return [
         {
             "id": n["id"],

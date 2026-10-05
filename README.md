@@ -198,6 +198,7 @@ app/
   static/           CSS and small vanilla-JS files
     vendor/         Cytoscape.js, bundled for offline use (MIT)
 tests/              pytest suite (parser unit tests + route integration tests)
+scripts/benchmark.py  scale check: times the main pages on ten years of notes
 data/               SQLite DB + uploaded files (gitignored; created on first run)
 ```
 
@@ -211,4 +212,13 @@ of their contents.
 source .venv/bin/activate
 pip install -r requirements.txt pytest
 pytest tests/ -v
+```
+
+To check that pages still cost the same however many notes there are,
+time them on a throwaway database of ten years of notes (36,500 at 10 a
+day; your own `data/` is never touched):
+
+```bash
+python scripts/benchmark.py                 # ten years, about a minute
+python scripts/benchmark.py --notes 3650    # one year
 ```

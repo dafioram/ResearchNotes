@@ -622,7 +622,7 @@ def test_attachment_count_helper_returns_correct_counts(client, app):
     )
 
     with app.app_context():
-        counts = dbmod.get_attachment_counts()
+        counts = dbmod.get_attachment_counts([n1, n2])
         assert counts.get(n1) == 2
         assert counts.get(n2) is None
 
@@ -715,7 +715,7 @@ def test_backlink_badge_count_matches_backlink_list(client, app):
         target = dbmod.create_note("# Target", "2026-01-01")
         for i in range(4):
             dbmod.create_note(f"ref {i} [[{target}]]", "2026-01-02")
-        counts = dbmod.get_backlink_counts()
+        counts = dbmod.get_backlink_counts([target])
         listed = dbmod.get_backlinks(target)
         assert counts[target] == len(listed) == 4
 
