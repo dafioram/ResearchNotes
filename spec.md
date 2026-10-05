@@ -169,8 +169,8 @@ note, Random, History, Trash (Graph is reached from a note).
   - Trash / History: the page name and what it lists.
   - A note's page: its number and the View / Edit switch; then in View
     its date and line count, in Edit the date picker, Save / Done /
-    Cancel, save status, shortcut hint and labels; View graph and Delete
-    in both (§4.3).
+    Cancel, save status and shortcut hint; View graph and Delete in both
+    (§4.3).
 - **Main column**: all the width beside the sidebar — cards, lists,
   headings and the editor use it fully. Only **paragraphs of note text**
   stop at about 100 characters (`--prose-measure: 100ch`), since much
@@ -256,9 +256,9 @@ leaves the page.
 - **Edit** is the raw markdown in a plain `<textarea>` — intentionally
   not a rich editor or a live-preview split pane — using the full width
   of the main column and the height of the window. Its sidebar has the
-  sort date picker, Save / Done / Cancel, a save status line, the Ctrl+S
-  hint, and every label in use as a chip that inserts `#label ` at the
-  cursor. The attachment editor is under the text (§9.3). Opening a page
+  sort date picker, Save / Done / Cancel, a save status line and the
+  Ctrl+S hint. Labels and links are suggested in the text as you type
+  them (§6.1, §6.2). The attachment editor is under the text (§9.3). Opening a page
   in Edit puts the cursor in the editor.
 - **View graph** and **Delete** are in the sidebar in both modes. View
   graph is greyed out, explaining "No connections yet" on hover, when the
@@ -421,6 +421,22 @@ one canonical entry per name with a combined count. Inline within a
 note's own rendered text, a `#label` still displays in whatever case the
 person actually typed; only the underlying row and the filter-link
 target are lowercased.
+
+**Suggestions while typing.** In the editor, `#` and a letter where a
+label can start (line start or after whitespace — so not `# Title`,
+`page#part` or `C#`) opens a list of the labels in use that match, in
+the same pop-up as `[[` links (§6.2): the label typed exactly first,
+then labels starting with it, then labels containing it (`learn` →
+`#learning`, `#machine-learning`), most-used first within each, up to
+8, each with its note count. Tab or Enter completes it (replacing the
+rest of the word, and adding a space unless one follows); Enter on a
+label already typed in full just starts a new line; a label nobody has
+used yet shows no list. The labels come from `/api/labels` once per
+page, and again after each save, which may have added some.
+
+This replaced a picker in the Edit sidebar that showed every label as a
+button — 376 buttons at ten years — and made every note page count
+every label to draw it.
 
 ### 6.2 `[[note-number]]`
 

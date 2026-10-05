@@ -325,7 +325,7 @@ def _render_note_page(row, mode, *, body=None, sort_date=None, status=200):
     """The note page (note.html) in View or Edit mode. `row` is None for a
     note that doesn't exist yet. body/sort_date override the editor's
     contents (used to re-show what was typed after a rejected save)."""
-    ctx = {"mode": mode, "labels": db.get_labels_with_counts(), "feed_url": url_for("notes.feed")}
+    ctx = {"mode": mode, "feed_url": url_for("notes.feed")}
     if row is None:
         ctx.update(
             note=None,
@@ -506,6 +506,12 @@ def api_graph_ego(note_id):
     hops = request.args.get("hops", default=1, type=int)
     hops = max(1, min(hops, 5))
     return jsonify(db.get_graph_data(center_id=note_id, hops=hops))
+
+
+@bp.route("/api/labels")
+def api_labels():
+    """Every label in use, most-used first, for the editor's # suggestions."""
+    return jsonify(labels=[{"name": r["name"], "count": r["count"]} for r in db.get_labels_with_counts()])
 
 
 @bp.route("/api/notes/lookup")

@@ -164,6 +164,7 @@ def main() -> None:
             ("Search: word + label + dates", "get", f"/?q=model+%23{label}+after:2020+before:2024", {}),
             ("Search: a number", "get", "/?q=12", {}),
             ("Search: has:later", "get", "/?q=has:later", {}),
+            ("Labels for # suggestions", "get", "/api/labels", {}),
             ("[[ lookup, nothing typed", "get", "/api/notes/lookup?q=", {}),
             ("[[ lookup, a word", "get", "/api/notes/lookup?q=mod", {}),
             ("[[ lookup, a number", "get", "/api/notes/lookup?q=12", {}),
