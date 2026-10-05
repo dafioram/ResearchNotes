@@ -132,9 +132,9 @@ DROP TRIGGER IF EXISTS notes_fts_au;
 --   detail: JSON -- for edits the line counts and label/link/date changes,
 --           for attachments the filename
 --   base_body / base_sort_date: the note as it was when an editing session
---           began, kept only while that session can still be extended so
---           merged saves are measured against the true starting point.
---           Cleared as soon as the session closes; never shown.
+--           began, so merged saves are measured against the true starting
+--           point -- and kept afterwards: it's the note's previous version
+--           (spec §11.5).
 CREATE TABLE IF NOT EXISTS activity (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     kind            TEXT NOT NULL,

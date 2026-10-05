@@ -36,6 +36,7 @@
                   <a class="history-flag" href="{{ url_for('notes.trash') }}">in Trash</a>
                 {% else %}
                   <a class="history-note" href="{{ url_for('notes.view_note', note_id=e['note_id']) }}"><span class="history-no">No. {{ e['note_id'] }}</span> {{ e['title'] }}</a>
+                  {% if e['version_url'] %}<a class="history-version" href="{{ e['version_url'] }}">see before</a>{% endif %}
                 {% endif %}
               </p>
               {% if e['changes'] %}

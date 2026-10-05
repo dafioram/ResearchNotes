@@ -91,12 +91,14 @@ def seed(app, count: int, rng: random.Random) -> list[str]:
         ts = created.isoformat(timespec="seconds")
         deleted = ts if rng.random() < 0.02 else None
         notes.append((i, "\n\n".join(parts), day.isoformat(), ts, ts, deleted))
-        history.append(("created", i, ts, ts, "{}"))
+        history.append(("created", i, ts, ts, "{}", None, None))
         if rng.random() < 0.35:
+            # an editing session, keeping the text it started from (a version)
             edited = (created + timedelta(days=rng.randint(0, 30))).isoformat(timespec="seconds")
-            history.append(("edited", i, edited, edited, json.dumps({"lines_added": 2, "lines_removed": 1})))
+            history.append(("edited", i, edited, edited, json.dumps({"lines_added": 2, "lines_removed": 1}),
+                            "\n\n".join(parts[:-1]), day.isoformat()))
         if deleted:
-            history.append(("deleted", i, ts, ts, "{}"))
+            history.append(("deleted", i, ts, ts, "{}", None, None))
         if rng.random() < 0.03:
             files.append((i, f"{i:064x}", f"paper-{i}.pdf", ts))
 
@@ -105,8 +107,8 @@ def seed(app, count: int, rng: random.Random) -> list[str]:
         with conn:
             conn.executemany("INSERT INTO notes (id, body, sort_date, created_at, updated_at, deleted_at) "
                              "VALUES (?, ?, ?, ?, ?, ?)", notes)
-            conn.executemany("INSERT INTO activity (kind, note_id, created_at, updated_at, detail) "
-                             "VALUES (?, ?, ?, ?, ?)", history)
+            conn.executemany("INSERT INTO activity (kind, note_id, created_at, updated_at, detail, "
+                             "base_body, base_sort_date) VALUES (?, ?, ?, ?, ?, ?, ?)", history)
             for note_id, file_hash, name, ts in files:
                 cur = conn.execute("INSERT INTO attachments (hash, filename, extension, mime_type, size, created_at) "
                                    "VALUES (?, ?, '.pdf', 'application/pdf', 1024, ?)", (file_hash, name, ts))
@@ -147,6 +149,9 @@ def main() -> None:
             for (target,) in conn.execute("SELECT to_note_id FROM note_links"):
                 incoming[target] = incoming.get(target, 0) + 1
             hub = max((n for n in live if n in incoming), key=incoming.get)
+            versioned, version_id = conn.execute(
+                "SELECT a.note_id, a.id FROM activity a JOIN notes n ON n.id = a.note_id "
+                "WHERE a.base_body IS NOT NULL AND n.deleted_at IS NULL ORDER BY a.id DESC LIMIT 1").fetchone()
 
         client = app.test_client()
         fetch = {"X-Requested-With": "fetch"}
@@ -179,6 +184,8 @@ def main() -> None:
             ("Unlinked notes (is:unlinked)", "get", "/?q=is:unlinked", {}),
             ("Notes with files (has:file)", "get", "/?q=has:file", {}),
             ("History", "get", "/history", {}),
+            ("Versions of a note", "get", f"/notes/{versioned}/versions", {}),
+            ("A version", "get", f"/notes/{versioned}/versions/{version_id}", {}),
             ("Trash", "get", "/trash", {}),
             ("Graph data, 1 hop", "get", f"/api/graph/{recent}?hops=1", {}),
             ("Graph data, 3 hops", "get", f"/api/graph/{recent}?hops=3", {}),

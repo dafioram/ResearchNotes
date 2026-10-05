@@ -1,3 +1,4 @@
+import difflib
 import hashlib
 import math
 import mimetypes
@@ -276,10 +277,13 @@ def _history_days(rows) -> list:
             heading = f"{local:%A} {local.day} {local:%B %Y}"  # no %-d: not on Windows
         item = {
             "kind": r["kind"],
-            "time": _clock_time(local),
+            "time": activity.clock_time(local),
             "note_id": r["note_id"],
             "title": md.first_line_text(r["note_body"]) or "(empty note)",
             "in_trash": r["note_deleted_at"] is not None,
+            # the note as it was before this edit (spec §11.5)
+            "version_url": (url_for("notes.note_version", note_id=r["note_id"], version_id=r["id"])
+                            if r["has_version"] and r["note_deleted_at"] is None else None),
             **activity.describe(r["kind"], r["detail"], r["save_count"]),
         }
         if not days or days[-1]["heading"] != heading:
@@ -307,12 +311,6 @@ def _local_date(iso_utc: str) -> str:
 # ---------------------------------------------------------------------------
 # Note CRUD
 # ---------------------------------------------------------------------------
-
-def _clock_time(dt: datetime) -> str:
-    """12-hour local time, e.g. "9:05 AM" (no %-I: not available on Windows)."""
-    local = dt.astimezone()
-    return f"{local.hour % 12 or 12}:{local:%M} {'AM' if local.hour < 12 else 'PM'}"
-
 
 def _feed_focus_url(note_id: int) -> str:
     """The feed page this note appears on (default order, no filters),
@@ -359,7 +357,7 @@ def _saved_response(note_id: int, created: bool = False):
     payload = {
         "ok": True,
         "note_id": note_id,
-        "saved_at": _clock_time(datetime.now()),
+        "saved_at": activity.clock_time(datetime.now()),
         "sort_date": note["sort_date"],
         "line_count": note["line_count"],
         "has_connections": has_connections,
@@ -476,6 +474,81 @@ def restore_note(note_id):
     db.restore_note(note_id)
     flash(f"Note {note_id} restored.")
     return redirect(url_for("notes.trash"))
+
+
+# ---------------------------------------------------------------------------
+# Versions (spec §11.5)
+# ---------------------------------------------------------------------------
+
+def _version_item(note_id, v):
+    return {
+        "id": v["id"],
+        "url": url_for("notes.note_version", note_id=note_id, version_id=v["id"]),
+        "saved": activity.local_stamp(v["saved_at"]) if v["saved_at"] else None,
+        "replaced": activity.local_stamp(v["replaced_at"]),
+        "sort_date": v["sort_date"],
+        "line_count": md.line_count(v["body"]),
+        "changes": activity.describe("edited", v["detail"], v["save_count"])["changes"],
+    }
+
+
+@bp.route("/notes/<int:note_id>/versions")
+def note_versions(note_id):
+    row = db.get_note(note_id)
+    if row is None:
+        abort(404)
+    return render_template(
+        "versions.html",
+        note=_note_view_model(row),
+        title=md.first_line_text(row["body"]) or "(empty note)",
+        updated=activity.local_stamp(row["updated_at"]),
+        versions=[_version_item(note_id, v) for v in db.note_versions(note_id)],
+    )
+
+
+def _diff_lines(old: str, new: str) -> list[tuple[str, str]]:
+    """(kind, text) lines of a unified diff from `old` to `new`, without
+    its file headers: kind is "add", "remove", "same" or "gap"."""
+    out = []
+    lines = difflib.unified_diff(old.splitlines(), new.splitlines(), lineterm="", n=2)
+    for line in list(lines)[2:]:
+        if line.startswith("@@"):
+            # a gap between changes, or before the first if it isn't at the top
+            if out or not line.startswith(("@@ -1,", "@@ -1 ", "@@ -0,")):
+                out.append(("gap", "…"))
+        else:
+            out.append(({"+": "add", "-": "remove"}.get(line[:1], "same"), line[1:]))
+    return out
+
+
+@bp.route("/notes/<int:note_id>/versions/<int:version_id>")
+def note_version(note_id, version_id):
+    row = db.get_note(note_id)
+    version = db.get_version(note_id, version_id) if row else None
+    if version is None:
+        abort(404)
+    item = _version_item(note_id, version)
+    return render_template(
+        "version.html",
+        note_id=note_id,
+        version=item,
+        html=md.render(version["body"], db.note_titles(md.extract_note_refs(version["body"]))),
+        diff=_diff_lines(version["body"], row["body"]),
+        date_changed=version["sort_date"] != row["sort_date"],
+        current_date=row["sort_date"],
+        is_current=(version["body"], version["sort_date"]) == (row["body"], row["sort_date"]),
+    )
+
+
+@bp.route("/notes/<int:note_id>/versions/<int:version_id>/restore", methods=["POST"])
+def restore_version(note_id, version_id):
+    if db.get_note(note_id) is None or db.get_version(note_id, version_id) is None:
+        abort(404)
+    if db.restore_version(note_id, version_id):
+        flash("Restored that version. The text it replaced is kept as a version too.")
+    else:
+        flash("That version is the same as the note now; nothing changed.")
+    return redirect(url_for("notes.view_note", note_id=note_id))
 
 
 # ---------------------------------------------------------------------------

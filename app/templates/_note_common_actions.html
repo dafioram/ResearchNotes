@@ -10,6 +10,7 @@
    data-href="{{ graph_url }}"
    data-no-connections-title="No connections yet: this note doesn&rsquo;t link to any note, and no note links to it."
    {% if has_connections %}href="{{ graph_url }}"{% else %}aria-disabled="true" title="No connections yet: this note doesn&rsquo;t link to any note, and no note links to it."{% endif %}>View graph</a>
+<a class="btn-quiet" href="{{ url_for('notes.note_versions', note_id=note_id) }}">Versions</a>
 <form method="post" action="{{ url_for('notes.delete_note', note_id=note_id) }}"
       data-confirm="Move note {{ note_id }} to trash?" id="delete-form">
   <button type="submit" class="btn-quiet btn-danger">Delete</button>
