@@ -24,6 +24,7 @@ Supported standard Markdown subset:
     ```lang\n code \n```   fenced code blocks
     [text](url)       links (http, https, mailto or relative; any other
                       scheme, e.g. javascript:, stays plain text)
+    https://...       a bare http(s) address becomes a link
     - item / * item    unordered lists
     1. item            ordered lists
     > quote            blockquotes
@@ -120,8 +121,11 @@ def line_count(body: str) -> int:
 # Inline rendering
 # ---------------------------------------------------------------------------
 
-BOLD_RE = re.compile(r"\*\*(.+?)\*\*|__(.+?)__", re.DOTALL)
-ITALIC_RE = re.compile(r"\*(.+?)\*|_(.+?)_", re.DOTALL)
+# Underscores only emphasise at word boundaries (as in CommonMark), so
+# max_batch_size or results_2024_final.csv stay as typed; asterisks work
+# anywhere. (?<!\w) = "not after a letter, digit or underscore", any language.
+BOLD_RE = re.compile(r"\*\*(.+?)\*\*|(?<!\w)__(.+?)__(?!\w)", re.DOTALL)
+ITALIC_RE = re.compile(r"\*(.+?)\*|(?<!\w)_(.+?)_(?!\w)", re.DOTALL)
 STRIKE_RE = re.compile(r"~~(.+?)~~", re.DOTALL)
 LINK_RE = re.compile(r"\[([^\]\n]+)\]\(([^)\s]+)\)")
 
@@ -145,6 +149,34 @@ def safe_href(url: str) -> str | None:
     return url
 
 
+# A bare http(s) address in running text becomes a link. Runs on escaped
+# text, so it stops at an escaped "<" too.
+AUTOLINK_RE = re.compile(r"(?<![\w/])https?://(?:(?!&lt;)[^\s\"\x00])+", re.IGNORECASE)
+_URL_TRAILING = ".,:;!?'\"*_~>"
+
+
+def _autolink(m: re.Match, stash: _Stash) -> str:
+    """Link a bare address, leaving out what belongs to the sentence:
+    trailing punctuation, and a ")" that doesn't close a "(" inside the
+    address -- so "(see https://x.org/a)" links https://x.org/a, while
+    https://en.wikipedia.org/wiki/Foo_(bar) keeps its brackets."""
+    url = html.unescape(m.group(0))
+    end = len(url)
+    while end:
+        c = url[end - 1]
+        if c in _URL_TRAILING or (c == ")" and url[:end].count(")") > url[:end].count("(")):
+            end -= 1
+        else:
+            break
+    url, rest = url[:end], url[end:]
+    if safe_href(url) is None or len(url) <= len("https://"):
+        return m.group(0)
+    link = stash.store(
+        "LINK", f'<a href="{html.escape(url, quote=True)}" rel="noopener">{html.escape(url, quote=False)}</a>'
+    )
+    return link + _escape_text(rest)
+
+
 def _render_inline(text: str, stash: _Stash, existing_ids: set[int]) -> str:
     """Render inline markdown (bold/italic/strike/links/labels/note-refs)
     on text that has ALREADY been HTML-escaped and had code spans stashed.
@@ -164,6 +196,7 @@ def _render_inline(text: str, stash: _Stash, existing_ids: set[int]) -> str:
         )
 
     text = LINK_RE.sub(_link, text)
+    text = AUTOLINK_RE.sub(lambda m: _autolink(m, stash), text)
 
     def _ref(m: re.Match) -> str:
         note_id = int(m.group(1))
