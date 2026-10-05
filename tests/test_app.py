@@ -953,7 +953,8 @@ def test_edit_form_fields_are_tied_to_note_form(client, app):
 
 def test_edit_page_shows_save_shortcut_hint(client):
     body = client.get("/notes/new").data.decode()
-    assert "<kbd data-mod-key>Ctrl</kbd>+<kbd>S</kbd> saves" in body
+    assert "<kbd data-mod-key>Ctrl</kbd>+<kbd>S</kbd> saves now" in body
+    assert "saves itself as you type" in body
 
 
 def test_graph_library_is_bundled_not_from_a_cdn(client, app):

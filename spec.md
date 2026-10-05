@@ -271,7 +271,8 @@ leaves the page.
 | **Save** or **Ctrl+S** (⌘S on a Mac) | Saves and stays in Edit, as often as you like. |
 | **Done** | Saves, then switches to View. |
 | Flipping the switch to **View** | Same as Done: saves (if anything changed), then shows View. |
-| **Cancel** | Discards unsaved changes — asking first if there are any — and switches to View. |
+| Stopping typing for **3 seconds** | Saves by itself (autosave), once the note exists. |
+| **Cancel** | Undoes this stretch of editing — asking first if anything changed: puts back the text and date as they were when Edit was opened, saving that if autosave had already saved some changes, and switches to View. |
 
 - A save sends the form with `fetch` and an `X-Requested-With: fetch`
   header; the server answers with JSON: the freshly rendered View pane,
@@ -293,7 +294,25 @@ leaves the page.
   shows the browser's "leave page?" warning. Delete asks its own
   confirmation instead, so it never shows both.
 - Frequent saves don't flood History: saves within 15 minutes merge into
-  one entry (§11.2).
+  one entry (§11.2), and into one version (§11.5).
+- **Autosave** runs only for a note that exists: a new note is created by
+  its first Save, by hand, so a stray keystroke on New note never creates
+  one. It waits for 3 s without typing, skips a form the browser would
+  reject (a cleared date — that waits for Save, which explains), and if
+  typing went on while a save was in flight, saves again 3 s later. A
+  failed autosave shows its error in the status line and tries again at
+  the next pause in typing.
+- **Drafts.** Until text is saved, it's also kept in the browser's own
+  storage (`localStorage`, `rn-draft:<id>` or `rn-draft:new`), written
+  300 ms after typing stops and when the page is hidden or closed. So a
+  crash, a killed tab, a dead battery or the app being unreachable can't
+  lose it. Opening that note (or New note) again in the same browser
+  shows a banner — "Unsaved changes to this note from … were kept in
+  this browser", adding "The note has been saved since" if it has —
+  with **Restore** (puts it in the editor, in Edit, where autosave then
+  saves it) and **Discard**. A draft identical to the saved note is
+  dropped silently; drafts are removed once saved, and any older than
+  30 days are dropped. A draft lives in one browser only.
 
 **New notes** (`/notes/new`) open in Edit with no switch yet, dated
 today (local time).
@@ -312,7 +331,8 @@ today (local time).
   so a refresh doesn't repeat it. If the page is too short to scroll, the
   note just stays where it is.
 - **Cancel** returns to the feed. If the note was never saved, nothing is
-  created.
+  created (it asks first if anything was typed); once it has been saved,
+  Cancel goes back to its first save.
 
 **Coming back to lists.** Pages are sent with `Cache-Control: no-store`,
 and the list pages reload if the browser restores them from its

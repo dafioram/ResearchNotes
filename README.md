@@ -48,8 +48,14 @@ in [spec.md](spec.md).
   textarea that fills the window, with the date and buttons in the
   sidebar. **Save** / **Ctrl+S** (⌘S on a Mac) save and keep you
   editing; **Done** (or flipping to View) saves and shows View; **Cancel**
-  discards. Leaving with unsaved changes asks first. Links to a note open
+  undoes your changes. Leaving with unsaved changes asks first. Links to a note open
   it in View; the feed's Edit button opens it in Edit.
+- **Autosave and drafts**: once a note exists it saves itself 3 seconds
+  after you stop typing (Save / Ctrl+S still save at once). Until text is
+  saved it's also kept in your browser, so a crash or closed tab can't
+  lose it: opening the note (or New note) again offers to restore it.
+  **Cancel** undoes everything since you opened Edit, even if autosave
+  had already saved some of it.
 - **New notes**: the first save creates the note and keeps you writing
   (attachments available right away); **Done** returns to the feed on the
   page where the new note sits, scrolled to it with a brief highlight.
