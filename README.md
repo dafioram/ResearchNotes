@@ -43,9 +43,12 @@ in [spec.md](spec.md).
   page where the new note sits, scrolled to it with a brief highlight.
 - **Hand-rolled markdown subset** (see below) -- no third-party markdown
   library. Deliberately not full CommonMark.
-- **`#labels`** anywhere in a note's text (`#label` needs no space; a
-  header needs one, e.g. `# Title`; `##nospace` is inert -- neither a
-  header nor a label).
+- **`#labels`** anywhere in a note's text: a `#` at the start of a line
+  or after a space, then a letter (any language), then letters, digits,
+  `.`, `-` or `_`; trailing `.`, `-` and `_` aren't included, so
+  "about #physics." is `#physics`. `#3`, `C#` and URL fragments aren't
+  labels. (`#label` needs no space; a header needs one, e.g. `# Title`;
+  `##nospace` is inert -- neither a header nor a label.)
 - **`[[note-number]]`** references to other notes, from anywhere in the
   text. Renders as a link if the note exists, or a dashed "ghost" marker
   if it doesn't (broken references are visible at a glance, never silently
@@ -106,8 +109,8 @@ and tables. Raw text always wins over ambiguous or malformed syntax rather
 than throwing an error.
 
 Known parser limitations (it's a small regex-based subset parser, not a
-spec-compliant implementation): a literal `#word` inside running text (e.g.
-a URL fragment or hex color) will be read as a label; a stray single `*`
+spec-compliant implementation): a hex color like `#fff` after a space will
+be read as a label; a stray single `*`
 used for multiplication next to another `*` on the same line can trigger
 unintended italics. Wrap either in `` `code` `` to opt out.
 

@@ -1,6 +1,9 @@
 import sys
 from pathlib import Path
 
+import re
+from urllib.parse import unquote
+
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -295,3 +298,39 @@ def test_ref_context_text_is_plain_not_html():
     [c] = md.ref_contexts("# T\nsee [site](http://x.com) & <b>[[5]]</b>", 5)
     assert c["before"] == "see site & <b>"
     assert c["after"] == "</b>"
+
+
+# ---------------------------------------------------------------------
+# Label rules (spec §6.1)
+# ---------------------------------------------------------------------
+
+@pytest.mark.parametrize("text,labels", [
+    ("#label", {"label"}),
+    ("I read about #label.", {"label"}),            # trailing dot cut off
+    ("#label... and #other-", {"label", "other"}),  # trailing dots, dashes cut off
+    ("#snake_case_", {"snake_case"}),
+    ("- #todo\n> #quote", {"todo", "quote"}),
+    ("# Title #tag", {"tag"}),
+    ("\t#tabbed", {"tabbed"}),
+    ("#café and #日本語", {"café", "日本語"}),          # any language
+    ("#node.js #v2.1", {"node.js", "v2.1"}),
+    ("#Mixed.Case", {"mixed.case"}),
+    ("step #3, PR #42", set()),                     # must start with a letter
+    ("#2024-review", set()),
+    ("C# and foo#bar", set()),                      # must follow whitespace
+    ("https://x.com/guide#install", set()),         # so URL fragments aren't labels
+    ("[docs](https://x.com/guide#install)", set()),
+    ("(#aside) **#bold**", set()),
+    ("##nospace", set()),
+    ("#a #b1", {"a", "b1"}),
+])
+def test_label_rules(text, labels):
+    assert md.extract_labels(text) == labels
+    # what renders as a label is exactly what's stored as one
+    rendered = re.findall(r'class="label-tag" href="/\?label=([^"]+)"', md.render(text))
+    assert {unquote(r) for r in rendered} == labels
+
+
+def test_label_keeps_its_case_on_screen_and_links_to_the_lowercase_filter():
+    html = md.render("About #Café.")
+    assert '<a class="label-tag" href="/?label=caf%C3%A9">#Café</a>.' in html

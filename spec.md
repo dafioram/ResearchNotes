@@ -358,15 +358,36 @@ spliced back in verbatim at the end.
 
 ### 6.1 `#label`
 
-A `#` immediately followed by a word character starts a label — **no
-space allowed**. This is what disambiguates a label from an ATX header,
-which (per CommonMark and this parser) **requires** a space:
-`#label` → label; `# Title` → `<h1>`. A doubled `##word` (no space) is
-neither — not a header (no space) and not a label (the `#` is preceded
-by another `#`) — so it renders as inert literal text.
+What is and isn't a label:
 
-A label can appear **anywhere** in a note's text, not just at the start
-of a line. Extraction and rendering both ignore anything inside code
+- The `#` **starts a line or follows whitespace** (a space or tab). So a
+  URL's fragment (`guide#install`), `C#` and `foo#bar` aren't labels —
+  nor is a `#` right after a bracket or bold markers: `(#aside)`,
+  `**#bold**`.
+- Then a **letter**, in any language (`#café`, `#日本語`), so `#3`,
+  `PR #42` and `#2024-review` aren't labels (`#review-2024` is).
+- Then any of letters, digits, `.`, `-` and `_` (`#node.js`, `#v2.1`,
+  `#snake_case`) — but a label **ends on a letter or digit**: trailing
+  `.`, `-` and `_` aren't part of it, so "I read about #physics." is
+  `#physics`.
+- `#label` needs no space after the `#`; that's what tells it from an
+  ATX header, which (per CommonMark and this parser) **requires** one:
+  `#label` → label; `# Title` → `<h1>`. A doubled `##word` (no space) is
+  neither — not a header (no space) and not a label (its second `#`
+  follows a `#`, not whitespace) — so it renders as inert literal text.
+- A hex colour like `#fff` still reads as a label; wrap it in backticks.
+
+Rendering finds labels on the same text, before bold and italic run, so
+what shows as a label is exactly what's stored as one (emphasis used to
+reach into labels: `#snake_case_` displayed as `#snake` and an italic
+"case"). The label's link goes to `/?label=<name>`, percent-encoded.
+These rules were tightened from "a `#` not after another `#`, then
+letters, digits, `_` and `-`" (which made `#3` a label and cut `#café`
+to `caf`). Notes saved before keep their old labels until they're saved
+again, or until one `flask reindex` (§13).
+
+Within those rules a label can appear **anywhere** in a note's text,
+not just at the start of a line. Extraction and rendering both ignore anything inside code
 blocks/spans. Label names are case-insensitive for storage/dedup
 purposes — extraction lowercases before it ever reaches the database
 (`#Research` and `#research` are stored as the same `note_labels` name,
