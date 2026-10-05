@@ -326,6 +326,7 @@ Hand-rolled, not CommonMark. Supported:
 | `` `code` `` | `<code>` |
 | ` ```lang␊code␊``` ` | `<pre><code class="language-lang">` |
 | `[text](url)` | `<a>` |
+| a bare `http(s)://` address | `<a>` (the address as its text) |
 | `- item` / `* item` | `<ul><li>` |
 | `1. item` | `<ol><li>` |
 | `> quote` | `<blockquote>` |
@@ -337,6 +338,22 @@ a separate, non-inline feature, §9), tables, raw HTML passthrough
 (everything is HTML-escaped first, so the table above is genuinely the
 entire vocabulary available — there is no way to smuggle a `<script>`
 tag through a note body).
+
+Underscores only emphasise at word boundaries, as in CommonMark:
+`_word_` and `__word__` work, but an underscore inside a word does
+nothing, so `max_batch_size` and `results_2024_final.csv` stay as typed
+(they used to come out as max*batch*size). Asterisks work anywhere,
+including inside a word. As in CommonMark, `__init__.py` is still read as
+bold "init" — the closing `__` is followed by punctuation — so wrap
+identifiers like that in backticks.
+
+A bare `http://` or `https://` address in running text becomes a link,
+with the address as its text. Trailing punctuation is left out
+(`…/2401.00001.` links without the full stop), and so is a `)` that
+doesn't close a `(` inside the address: `(see https://x.org/a)` links
+`https://x.org/a`, while `https://en.wikipedia.org/wiki/Foo_(bar)` keeps
+its brackets. Addresses are set aside before emphasis and labels, so
+underscores and `#` in them are left alone; inside code they stay code.
 
 A `[text](url)` link is only made clickable when the URL is `http:`,
 `https:`, `mailto:` or has no scheme at all (a relative address, a

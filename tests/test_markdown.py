@@ -334,3 +334,59 @@ def test_label_rules(text, labels):
 def test_label_keeps_its_case_on_screen_and_links_to_the_lowercase_filter():
     html = md.render("About #Café.")
     assert '<a class="label-tag" href="/?label=caf%C3%A9">#Café</a>.' in html
+
+
+# ---------------------------------------------------------------------
+# Underscores inside words, bare URLs (spec §5)
+# ---------------------------------------------------------------------
+
+@pytest.mark.parametrize("text", [
+    "Set max_batch_size in train_config.py",
+    "See results_2024_final.csv",
+    "foo__bar__baz",
+    "snake_case_word",
+])
+def test_underscores_inside_words_stay_as_typed(text):
+    html = md.render(text)
+    assert "<em>" not in html and "<strong>" not in html
+    assert text.replace("&", "&amp;") in html
+
+
+def test_underscore_emphasis_still_works_at_word_boundaries():
+    html = md.render("_one_ (_two_), __three__ and *four*teen")
+    assert "<em>one</em>" in html and "<em>two</em>" in html
+    assert "<strong>three</strong>" in html and "<em>four</em>teen" in html
+
+
+@pytest.mark.parametrize("text,url,after", [
+    ("Paper: https://arxiv.org/abs/2401.00001.", "https://arxiv.org/abs/2401.00001", "."),
+    ("(see https://example.com/my_long_path)", "https://example.com/my_long_path", ")"),
+    ("https://en.wikipedia.org/wiki/Foo_(bar)", "https://en.wikipedia.org/wiki/Foo_(bar)", ""),
+    ("is it http://example.com?", "http://example.com", "?"),
+])
+def test_bare_urls_become_links_without_trailing_punctuation(text, url, after):
+    html = md.render(text)
+    assert f'<a href="{url}" rel="noopener">{url}</a>{after}' in html
+
+
+def test_bare_url_query_string_is_escaped_once():
+    html = md.render("q https://x.com/s?a=1&b=2 end")
+    assert 'href="https://x.com/s?a=1&amp;b=2"' in html
+
+
+@pytest.mark.parametrize("text", [
+    "`https://code.example/x`",           # code stays code
+    "javascript:alert(1)",                 # only http(s) is linked
+    "http://",
+])
+def test_not_everything_url_like_is_linked(text):
+    assert "<a " not in md.render(text)
+
+
+def test_written_links_are_left_alone():
+    html = md.render("[the paper](https://a.com/p) and https://b.com")
+    assert html.count("<a ") == 2 and '>the paper</a>' in html
+
+
+def test_bare_url_is_plain_text_in_titles():
+    assert md.first_line_text("# Read https://a.com/x_y later") == "Read https://a.com/x_y later"

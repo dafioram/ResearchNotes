@@ -98,7 +98,8 @@ in [spec.md](spec.md).
 Supported: `# .. ######` headers (space required), `**bold**` / `__bold__`,
 `*italic*` / `_italic_`, `~~strikethrough~~`, `` `inline code` ``, fenced
 code blocks, `[text](url)` links (http, https, mailto or relative
-addresses; other schemes such as `javascript:` stay plain text),
+addresses; other schemes such as `javascript:` stay plain text), bare
+`https://...` addresses (linked as they are),
 `- ` / `* ` unordered lists, `1. ` ordered
 lists, `> ` blockquotes, `---`/`***`/`___` horizontal rules, and paragraphs
 (a single newline becomes `<br>`; a blank line starts a new paragraph).
@@ -112,7 +113,9 @@ Known parser limitations (it's a small regex-based subset parser, not a
 spec-compliant implementation): a hex color like `#fff` after a space will
 be read as a label; a stray single `*`
 used for multiplication next to another `*` on the same line can trigger
-unintended italics. Wrap either in `` `code` `` to opt out.
+unintended italics; `__init__.py` reads as bold "init" (underscores
+inside words, like `max_batch_size`, are fine). Wrap any of these in
+`` `code` `` to opt out.
 
 ## Getting started
 
