@@ -21,7 +21,8 @@ Supported standard Markdown subset:
     ~~strikethrough~~
     `inline code`
     ```lang\n code \n```   fenced code blocks
-    [text](url)       links
+    [text](url)       links (http, https, mailto or relative; any other
+                      scheme, e.g. javascript:, stays plain text)
     - item / * item    unordered lists
     1. item            ordered lists
     > quote            blockquotes
@@ -120,6 +121,25 @@ ITALIC_RE = re.compile(r"\*(.+?)\*|_(.+?)_", re.DOTALL)
 STRIKE_RE = re.compile(r"~~(.+?)~~", re.DOTALL)
 LINK_RE = re.compile(r"\[([^\]\n]+)\]\(([^)\s]+)\)")
 
+# Only these schemes become clickable; javascript:, data: and the rest stay
+# as the text that was typed.
+SAFE_SCHEMES = frozenset({"http", "https", "mailto"})
+_SCHEME_RE = re.compile(r"([a-zA-Z][a-zA-Z0-9+.\-]*):")
+_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def safe_href(url: str) -> str | None:
+    """`url` (as typed) if it's fine to link to -- http(s), mailto, or an
+    address with no scheme (relative, #fragment, //host) -- else None.
+    Anything containing control characters is refused too: browsers strip
+    them, so they could hide a scheme from this check."""
+    if _CONTROL_RE.search(url):
+        return None
+    m = _SCHEME_RE.match(url)
+    if m and m.group(1).lower() not in SAFE_SCHEMES:
+        return None
+    return url
+
 
 def _render_inline(text: str, stash: _Stash, existing_ids: set[int]) -> str:
     """Render inline markdown (bold/italic/strike/links/labels/note-refs)
@@ -129,8 +149,15 @@ def _render_inline(text: str, stash: _Stash, existing_ids: set[int]) -> str:
 
     def _link(m: re.Match) -> str:
         label, url = m.group(1), m.group(2)
-        safe_url = html.escape(url, quote=True)
-        return stash.store("LINK", f'<a href="{safe_url}" rel="noopener">{label}</a>')
+        # The text arrives escaped; check the URL as typed, then escape it
+        # once for the attribute (escaping the escaped text turned & into
+        # &amp;amp; and broke query strings).
+        href = safe_href(html.unescape(url))
+        if href is None:
+            return stash.store("LINK", m.group(0))  # shown as typed, not a link
+        return stash.store(
+            "LINK", f'<a href="{html.escape(href, quote=True)}" rel="noopener">{label}</a>'
+        )
 
     text = LINK_RE.sub(_link, text)
 

@@ -576,6 +576,19 @@ def remove_attachment(note_id, attachment_id):
     return _attachment_result(note_id, f"Removed {name} from this note.")
 
 
+# File types a browser shows without running anything in them. Everything
+# else -- HTML and SVG above all, which can carry scripts -- downloads
+# rather than opening as a page of this app (spec §9.3, §14).
+_INLINE_TYPES = frozenset({
+    "image/png", "image/jpeg", "image/gif", "image/webp", "image/avif", "image/bmp",
+    "application/pdf", "text/plain",
+})
+
+
+def _opens_inline(mime_type: str) -> bool:
+    return mime_type in _INLINE_TYPES or mime_type.startswith(("audio/", "video/"))
+
+
 @bp.route("/files/<file_hash>")
 def serve_attachment(file_hash):
     row = db.get_attachment_by_hash(file_hash)
@@ -584,9 +597,16 @@ def serve_attachment(file_hash):
     disk_path = _attachment_disk_path(file_hash, row["extension"])
     if not disk_path.exists():
         abort(404)
-    return send_file(
+    response = send_file(
         disk_path,
         mimetype=row["mime_type"],
         download_name=row["filename"],
-        as_attachment=False,
+        as_attachment=not _opens_inline(row["mime_type"]),
     )
+    # The browser must use the stored type, not guess one from the bytes.
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    # Whatever opens gets no scripts and no access to the app. Not for PDFs:
+    # browsers' built-in PDF viewers may refuse to open under a sandbox.
+    if row["mime_type"] != "application/pdf":
+        response.headers["Content-Security-Policy"] = "sandbox"
+    return response

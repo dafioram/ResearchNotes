@@ -1,6 +1,8 @@
 import sys
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app import markdown as md
@@ -116,6 +118,37 @@ def test_headers_all_levels():
 def test_links():
     html = md.render("[Anthropic](https://anthropic.com)")
     assert '<a href="https://anthropic.com" rel="noopener">Anthropic</a>' in html
+
+
+def test_link_query_string_is_escaped_once():
+    html = md.render("[q](https://example.com/search?a=1&b=2)")
+    assert 'href="https://example.com/search?a=1&amp;b=2"' in html
+
+
+@pytest.mark.parametrize("url", [
+    "http://a.example", "HTTPS://a.example", "mailto:me@example.com",
+    "/notes/5", "notes/5", "#section", "//a.example/x", "?q=1",
+])
+def test_safe_links_are_clickable(url):
+    assert md.safe_href(url) == url
+    assert "<a href=" in md.render(f"[x]({url})")
+
+
+@pytest.mark.parametrize("url", [
+    "javascript:alert(1)", "JavaScript:alert(1)", "data:text/html,hi", "vbscript:msgbox",
+    "\x01javascript:alert(1)", "java\x0bscript:alert(1)",
+])
+def test_other_schemes_stay_plain_text(url):
+    assert md.safe_href(url) is None
+    html = md.render(f"[click]({url})")
+    assert "<a " not in html
+    assert "[click](" in html  # shown as typed
+
+
+def test_entity_tricks_do_not_make_a_scheme():
+    # "&#58;" is a colon only if decoded twice; the href must stay relative.
+    html = md.render("[x](javascript&#58;alert(1))")
+    assert 'href="javascript&amp;#58;alert(1"' in html
 
 
 def test_unordered_list():

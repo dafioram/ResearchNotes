@@ -82,7 +82,9 @@ in [spec.md](spec.md).
   markdown -- attachments show as a plain list on the note. To attach,
   drop files anywhere on the note while editing (several at once is
   fine); adding or removing a file happens in place, without reloading,
-  so unsaved text is never lost.
+  so unsaved text is never lost. Images, PDFs, plain text, audio and
+  video open in the browser; anything else (HTML and SVG included)
+  downloads.
 - Structure notes / MOCs and Folgezettel-style numbering are intentionally
   **not** special-cased -- a structure note is just an ordinary note whose
   body links to others.
@@ -91,7 +93,9 @@ in [spec.md](spec.md).
 
 Supported: `# .. ######` headers (space required), `**bold**` / `__bold__`,
 `*italic*` / `_italic_`, `~~strikethrough~~`, `` `inline code` ``, fenced
-code blocks, `[text](url)` links, `- ` / `* ` unordered lists, `1. ` ordered
+code blocks, `[text](url)` links (http, https, mailto or relative
+addresses; other schemes such as `javascript:` stay plain text),
+`- ` / `* ` unordered lists, `1. ` ordered
 lists, `> ` blockquotes, `---`/`***`/`___` horizontal rules, and paragraphs
 (a single newline becomes `<br>`; a blank line starts a new paragraph).
 
@@ -147,6 +151,20 @@ docker run -p 5000:5000 -e PORT=5000 -v "$(pwd)/data:/app/data" research-notes
 | `DATA_DIR`   | `./data`| Where `notes.db` and `uploads/` live                 |
 | `PAGE_SIZE`  | `50`    | Notes per page on the feed, Orphans and Attachments  |
 | `TZ`         | UTC     | Docker only: time zone for dates, e.g. `America/New_York` |
+| `ALLOWED_HOSTS` | none | Public domain names the app may be reached by (see below) |
+
+## Network safety
+
+There's no login, by design: run it on your own machine or a trusted
+network. Two invisible checks stop *other web pages* from using a browser
+on that network to reach the app (details in spec §14):
+
+- Changes are only accepted from the app's own pages; a form or script on
+  another site gets a 403.
+- The app only answers to IP addresses, `localhost`, and local names
+  such as `myserver`, `notes.lan` or `nas.local`. To reach it by a
+  public domain name, add the name to `ALLOWED_HOSTS` in `.env`
+  (comma-separated; `.example.com` allows every name under it).
 
 ## Project layout
 
@@ -160,6 +178,7 @@ app/
   activity.py       what an edit changed; wording for the History page
   markdown.py       the hand-rolled markdown/label/ref parser
   routes.py         routes
+  security.py       request guards: same-site changes, local addresses
   templates/        Jinja templates (_macros.html holds shared pieces)
   static/           CSS and small vanilla-JS files
     vendor/         Cytoscape.js, bundled for offline use (MIT)
