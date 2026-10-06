@@ -306,6 +306,11 @@ leaves the page.
   (so View graph can enable or grey out without a reload), and the time
   saved. Without that header the same routes redirect as a plain form
   would.
+- **Line endings are stored as `\n`.** Browsers send a textarea's text
+  with `\r\n`; `create_note`/`update_note` convert it, so headers don't
+  end in a stray `\r` and fenced code doesn't open with a blank line.
+  (Found by the browser tests; notes saved before keep `\r\n` until
+  they're next saved, which renders the same.)
 - The status line under the buttons reads "Unsaved changes" as soon as
   the text or date differs from what was last saved, "Saved 10:42 AM"
   after a save, or the error if a save failed.

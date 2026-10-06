@@ -264,6 +264,7 @@ app/
   static/           CSS and small vanilla-JS files
     vendor/         Cytoscape.js, bundled for offline use (MIT)
 tests/              pytest suite (parser unit tests + route integration tests)
+  browser/          browser tests: the app driven in Chromium (pytest -m browser)
 scripts/benchmark.py  scale check: times the main pages on ten years of notes
 data/               SQLite DB + uploaded files (gitignored; created on first run)
 ```
@@ -276,9 +277,22 @@ of their contents.
 
 ```bash
 source .venv/bin/activate
-pip install -r requirements.txt pytest
-pytest tests/ -v
+pip install -r requirements-dev.txt
+pytest                      # everything but the browser tests, ~15 s
 ```
+
+The **browser tests** (`tests/browser/`) run the app on a spare port with
+a fresh database and drive it in Chromium: saving, Done and Cancel,
+autosave and drafts, the `[[` and `#` suggestions, dropping files, the
+feed's cards and label chips, the graph, Trash and versions. Any
+JavaScript error on a page fails the test. They take about a minute:
+
+```bash
+playwright install chromium          # once (or set CHROMIUM_PATH to an existing Chromium)
+pytest -m browser
+```
+
+Without Playwright or a Chromium they skip themselves.
 
 To check that pages still cost the same however many notes there are,
 time them on a throwaway database of ten years of notes (36,500 at 10 a

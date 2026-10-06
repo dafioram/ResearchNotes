@@ -101,7 +101,15 @@ def today_str() -> str:
 # Notes
 # ---------------------------------------------------------------------------
 
+def _lines(body: str) -> str:
+    """Line endings as "\n": browsers send a textarea's text with "\r\n",
+    which would otherwise be stored -- leaving a "\r" on every header and
+    making the stored text differ from what the editor holds."""
+    return body.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def create_note(body: str, sort_date: str) -> int:
+    body = _lines(body)
     db = get_db()
     ts = now_iso()
     cur = db.execute(
@@ -119,6 +127,7 @@ def update_note(note_id: int, body: str, sort_date: str, restored_from: str | No
     """Save a note's text and date. `restored_from` (the saved-at time of
     a version being restored) makes the save its own editing session, so
     the text it replaces becomes a version too (spec §11.5)."""
+    body = _lines(body)
     db = get_db()
     before = db.execute("SELECT body, sort_date FROM notes WHERE id = ?", (note_id,)).fetchone()
     ts = now_iso()
