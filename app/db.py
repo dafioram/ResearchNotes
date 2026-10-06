@@ -194,29 +194,33 @@ def list_notes(label: str | None = None):
     return get_db().execute(f"SELECT n.* {from_where} {_FEED_ORDER}", params).fetchall()
 
 
-def list_notes_page(label: str | None, limit: int, offset: int):
-    if not label:
+def list_notes_page(labels, limit: int, offset: int):
+    """A page of the feed, or of the notes carrying any of `labels` (a
+    name or a list of names; None for the whole feed). Returns (rows,
+    total)."""
+    if isinstance(labels, str):
+        labels = [labels]
+    if not labels:
         return _paged_notes("FROM notes n WHERE n.deleted_at IS NULL", (), limit, offset)
     db = get_db()
-    name = label.lower()
-    total = label_note_count(name)
+    names = sorted({name.lower() for name in labels})
+    marks = _marks(names)
+    total = labels_note_count(names)
     live = db.execute("SELECT COUNT(*) FROM notes WHERE deleted_at IS NULL").fetchone()[0]
-    # A label's page can be read two ways, and which is quick depends on
-    # how common the label is. Walking the feed in order, checking each
+    # The page can be read two ways, and which is quick depends on how
+    # common the labels are. Walking the feed in order, checking each
     # note's labels, stops as soon as the page is full: quick for a common
-    # label. Taking the label's notes and sorting them reads every one:
-    # quick for a rare label. A step of the walk costs about a tenth of
+    # label. Taking the labels' notes and sorting them reads every one:
+    # quick for rare labels. A step of the walk costs about a tenth of
     # reading a note, so walk when it should take fewer than ten steps per
-    # note the label has. (CROSS JOIN fixes the order SQLite joins in.)
+    # note the labels have. (CROSS JOIN fixes the order SQLite joins in.)
     if (offset + limit) * live < 10 * total * total:
-        tables = "notes n CROSS JOIN note_labels nl ON nl.note_id = n.id"
+        sql = (f"SELECT n.* FROM notes n WHERE n.deleted_at IS NULL AND EXISTS "
+               f"(SELECT 1 FROM note_labels nl WHERE nl.note_id = n.id AND nl.name IN ({marks}))")
     else:
-        tables = "note_labels nl CROSS JOIN notes n ON n.id = nl.note_id"
-    rows = db.execute(
-        f"SELECT n.* FROM {tables} WHERE n.deleted_at IS NULL AND nl.name = ? "
-        f"{_FEED_ORDER} LIMIT ? OFFSET ?",
-        (name, limit, offset),
-    ).fetchall()
+        sql = (f"SELECT n.* FROM (SELECT DISTINCT note_id FROM note_labels WHERE name IN ({marks})) nl "
+               f"CROSS JOIN notes n ON n.id = nl.note_id WHERE n.deleted_at IS NULL")
+    rows = db.execute(f"{sql} {_FEED_ORDER} LIMIT ? OFFSET ?", (*names, limit, offset)).fetchall()
     return rows, total
 
 
@@ -255,7 +259,11 @@ def _search_parts(q):
     if q.exclude_words:
         where.append("n.id NOT IN (SELECT rowid FROM notes_fts WHERE notes_fts MATCH ?)")
         params.append(" OR ".join(q.exclude_words))
-    for name in q.labels:
+    if q.labels:  # any of them
+        where.append(f"EXISTS (SELECT 1 FROM note_labels WHERE note_id = n.id "
+                     f"AND name IN ({_marks(q.labels)}))")
+        params.extend(q.labels)
+    for name in q.required_labels:  # each of them
         where.append("EXISTS (SELECT 1 FROM note_labels WHERE note_id = n.id AND name = ?)")
         params.append(name)
     for name in q.exclude_labels:
@@ -288,8 +296,8 @@ def search_page(q, limit: int, offset: int):
     SQLite -- nothing loads every match."""
     if q.is_empty and not q.number:
         return list_notes_page(None, limit, offset)
-    if q.only_label:
-        return list_notes_page(q.only_label, limit, offset)
+    if q.only_labels:
+        return list_notes_page(q.only_labels, limit, offset)
     from_where, params, order, order_params, count_from = _search_parts(q)
     db = get_db()
     total = db.execute(f"SELECT COUNT(*) {count_from}", params).fetchone()[0]
@@ -595,11 +603,15 @@ def get_labels_with_counts():
     ).fetchall()
 
 
-def label_note_count(name: str) -> int:
-    """How many notes not in Trash carry the label `name` (lowercase)."""
-    return get_db().execute(
-        "SELECT COUNT(*) FROM note_labels WHERE name = ?", (name,)
-    ).fetchone()[0]
+def labels_note_count(names) -> int:
+    """How many notes not in Trash carry any of the labels `names`
+    (lowercase; a note with several of them counts once)."""
+    names = list(names)
+    if len(names) == 1:
+        sql = "SELECT COUNT(*) FROM note_labels WHERE name = ?"
+    else:
+        sql = f"SELECT COUNT(DISTINCT note_id) FROM note_labels WHERE name IN ({_marks(names)})"
+    return get_db().execute(sql, names).fetchone()[0]
 
 
 def get_backlinks(note_id: int):
