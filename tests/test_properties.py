@@ -19,7 +19,8 @@ from app import search, security  # noqa: E402
 MARKUP = st.lists(
     st.sampled_from(list("ab #*_~`[]()<>&\"'\n:/.-!|=\\")
                     + ["javascript:", "http://x.org", "[[", "]]", "[[later", "```", "<script>",
-                       "onerror=", "é", "日", "\r\n", "\t", "#lab", "data:", "&lt;", "\x00", "1"]),
+                       "onerror=", "é", "日", "\r\n", "\t", "#lab", "data:", "&lt;", "\x00", "1",
+                       "$", "$$", "\\$", "$x$"]),
     max_size=60,
 ).map("".join)
 SAFE_TAGS = {"p", "br", "h1", "h2", "h3", "h4", "h5", "h6", "strong", "em", "del", "code", "pre",

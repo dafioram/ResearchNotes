@@ -35,12 +35,17 @@ which fall back to local serif/monospace fonts (§2).
   (WAL journal mode). No ORM.
 - **Vanilla JS**, no framework, no bundler. A handful of small
   page-specific scripts (`feed.js`, `graph.js`, `app.js`) loaded as
-  plain `<script>` tags.
-- **Cytoscape.js** for the two graph views — the one place a
-  third-party library earns its place. Bundled in `app/static/vendor/`
+  plain `<script>` tags, plus `math.js` on every page (§5.1).
+- **Cytoscape.js** for the two graph views — a third-party library that
+  earns its place. Bundled in `app/static/vendor/`
   (MIT licensed, license header kept in the file) rather than loaded
   from a CDN, so the graph works without a network connection. Upgrading
   means replacing that file and the version in its filename.
+- **KaTeX** draws math (§5.1) in the browser -- the second library, since
+  typesetting TeX is a project of its own. Bundled the same way, in
+  `app/static/vendor/katex-<version>/` (the minified script and CSS,
+  only the `.woff2` fonts, and its MIT `LICENSE`), and loaded on every
+  page (~300 KB, cached; the fonts load only when math is shown).
 - **Web fonts** (Source Serif 4, IBM Plex Mono) come from Google Fonts;
   offline, the CSS falls back to Georgia and the system monospace font,
   so nothing breaks, it just looks slightly different.
@@ -390,6 +395,7 @@ Hand-rolled, not CommonMark. Supported:
 | `> quote` | `<blockquote>` |
 | `---` / `***` / `___` | `<hr>` |
 | blank-line-separated paragraphs; single `\n` | `<p>`; `<br>` |
+| `$x^2$` / `$$…$$` | math, drawn by KaTeX (§5.1) |
 
 Deliberately **not** supported: image syntax (`![]()` — attachments are
 a separate, non-inline feature, §9), tables, raw HTML passthrough
@@ -421,13 +427,49 @@ silently strip, so they could hide a scheme) is shown exactly as typed,
 as plain text. The URL is checked as typed and HTML-escaped once for the
 attribute, so `?a=1&b=2` reaches the browser intact.
 
-Parsing order, in the actual renderer: fenced code blocks and inline
-code spans are extracted into placeholders **before** anything else runs
+Parsing order, in the actual renderer: fenced code blocks, inline code
+spans and then math are extracted into placeholders **before** anything else runs
 (so a `#` inside a code block is never mistaken for a label, and a
 `[[42]]` inside inline code is never linkified); block-level structure
 (headers/lists/quotes/hr) is parsed next; inline formatting and the two
 note-specific extensions below run last, on the remaining text; code is
 spliced back in verbatim at the end.
+
+### 5.1 Math
+
+TeX between dollar signs, the way most research writing tools take it:
+
+- `$…$` is inline math: `the rate $\lambda$ falls as $e^{-t/S}$`.
+- `$$…$$` is a display block, centered on its own line. It may span
+  lines, blank lines included:
+
+  ```
+  $$
+  \hat\theta = \arg\max_\theta \sum_i \log p(x_i \mid \theta)
+  $$
+  ```
+
+- **Prices stay text** (pandoc's rules): an opening `$` must have no
+  space after it and not follow a letter or digit, and a closing `$`
+  must have no space before it and not be followed by a digit. So "$5
+  and $10", "between $5 and $6." and an address with a `$` in it are not
+  math. `\$` is a plain dollar sign.
+- **Nothing inside math is anything else.** Math is set aside right after
+  code, so `#`, `[[3]]`, `*` and `_` inside it are TeX -- not labels,
+  links or emphasis -- and `extract_labels()` / `extract_note_refs()`
+  agree (§6.3). Code wins: `` `$x$` `` is code.
+- **The server never renders TeX.** It writes the source as typed,
+  dollars included and HTML-escaped, in `<span class="math math-inline">`
+  or `<span class="math math-display">`. `static/math.js` hands each one
+  to KaTeX in the browser -- on load, and in anything added later (a
+  feed card opened in place, the view after a save) -- and keeps the TeX
+  as the element's tooltip. KaTeX runs with `trust: false`, so commands
+  that make links or HTML (`\href`, `\url`, `\html…`) are refused, and
+  with `throwOnError: false`, so bad TeX shows in red instead of breaking
+  the page. Without JavaScript the TeX simply shows as typed.
+- **Plain text keeps the TeX**: titles in links, backlink passages,
+  History and the graph show `$e^{-t/S}$` as typed. Search indexes the
+  note as typed, so `lambda` finds `$\lambda$`.
 
 ## 6. Labels and note references
 
@@ -1254,3 +1296,64 @@ attached files that could run scripts download instead of opening (§9.3).
 
 Out of scope, deliberately: login, accounts, TLS. Docker publishes the
 port on every interface so other machines on the network can use the app.
+
+## 15. Future work
+
+Ideas that fit the design and have a worked-out shape, but aren't built
+yet. Unlike §12, these are wanted.
+
+### 15.1 DOI and arXiv identifiers as links
+
+**How sources work today.** A paper, book or talk gets a note of its
+own -- a literature note: its title line names it (`# Smith 2021 — Sleep
+and memory`), the body holds the citation, a link to the paper
+(`[doi](https://doi.org/10.1038/...)` or a bare `https://` address) and
+what you took from it, and a label such as `#ref-paper` groups them.
+Other notes cite it with `[[id]]`, so its backlinks list every note that
+draws on it, with the passage around each citation (§6.5), and the `[[`
+pop-up finds it by title. Nothing here needs a reference manager.
+
+**The gap.** Researchers copy identifiers, not addresses: `doi:10.1038/
+s41586-021-03819-2`, `arXiv:2401.00001`. Today those are plain text, so
+the link has to be written out by hand.
+
+**Proposal.** In running text, an identifier with its prefix becomes a
+link, shown exactly as typed:
+
+| Typed | Links to |
+|---|---|
+| `doi:10.1038/s41586-021-03819-2` | `https://doi.org/10.1038/s41586-021-03819-2` |
+| `arXiv:2401.00001`, `arXiv:2401.00001v2` | `https://arxiv.org/abs/2401.00001` (version kept) |
+| `arXiv:hep-th/9901001` (pre-2007 form) | `https://arxiv.org/abs/hep-th/9901001` |
+
+- **The prefix is required**, any capitalization (`doi:`, `DOI:`,
+  `arxiv:`). A bare `10.1038/...` or `2401.00001` is too easy to hit by
+  accident (version numbers, dates, figures) and stays text.
+- **Patterns.** DOI: Crossref's recommended form,
+  `10\.\d{4,9}/[-._;()/:a-z0-9]+` (case-insensitive) -- covers nearly
+  every DOI issued. arXiv: `\d{4}\.\d{4,5}(v\d+)?` and the old
+  `[a-z-]+(\.[a-z]{2})?/\d{7}(v\d+)?`. The prefix may not follow a letter
+  or digit (`xdoi:` isn't one).
+- **Where in the renderer:** in `_render_inline`, next to the bare-address
+  autolink and stashed the same way (`LINK`), so emphasis, labels and
+  `[[refs]]` can't reach into one. Trailing punctuation is left out with
+  the same rule as addresses (`_URL_TRAILING`, and a `)` that doesn't
+  close a `(` inside the DOI -- DOIs can contain brackets). The DOI is
+  percent-encoded for the `href` (`quote(doi, safe="/:;()")`): DOIs may
+  contain `#`, `?` or `<`, which would otherwise change the address.
+- **Unchanged:** inside code or math it stays as typed (both are set
+  aside first); in plain-text places (titles in links, backlink passages,
+  History) it shows as typed; search indexes it as typed, so
+  `doi:10.1038` finds it -- `doi:` is not a search operator.
+- **Tests:** each pattern linked with the right `href`; prefix required;
+  trailing `.`, `,` and `)` left out; brackets inside a DOI kept; nothing
+  inside code or math; the property tests' alphabet gets `doi:10.1/x` and
+  `arXiv:` so "what's shown is what's stored" keeps holding.
+- **Left out on purpose:** fetching a paper's title from Crossref or the
+  arXiv API to show it in place of the identifier. That needs the server
+  to reach the internet on every render or save, which the app otherwise
+  never does (§14), and offline it would fail. The literature note's
+  title line already gives the human-readable name.
+
+Effort: about 30 lines in `markdown.py` plus tests, and a row in §5's
+table.

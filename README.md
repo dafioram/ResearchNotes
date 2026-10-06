@@ -156,6 +156,11 @@ addresses; other schemes such as `javascript:` stay plain text), bare
 lists, `> ` blockquotes, `---`/`***`/`___` horizontal rules, and paragraphs
 (a single newline becomes `<br>`; a blank line starts a new paragraph).
 
+**Math**: `$E = mc^2$` inline and `$$ … $$` as a centered block (it can
+span lines), drawn by KaTeX, bundled so it works offline. Prices are
+left alone -- "$5 and $10" stays text -- and `\$` is a plain dollar sign.
+Hover over a formula to see its TeX; bad TeX shows in red.
+
 Not supported by design: image syntax (`![]()`), raw HTML passthrough
 (everything is escaped), nested/complex inline formatting inside link text,
 and tables. Raw text always wins over ambiguous or malformed syntax rather
@@ -264,7 +269,7 @@ app/
   security.py       request guards: same-site changes, local addresses
   templates/        Jinja templates (_macros.html holds shared pieces)
   static/           CSS and small vanilla-JS files
-    vendor/         Cytoscape.js, bundled for offline use (MIT)
+    vendor/         Cytoscape.js and KaTeX, bundled for offline use (MIT)
 tests/              pytest suite (parser unit tests + route integration tests)
   browser/          browser tests: the app driven in Chromium (pytest -m browser)
 scripts/benchmark.py  scale check: times the main pages on ten years of notes
