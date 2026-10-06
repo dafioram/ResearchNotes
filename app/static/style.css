@@ -309,6 +309,30 @@ a:hover { color: var(--ink); }
 
 .note-list { border-top: 1px solid var(--rule); margin-bottom: 30px; }
 
+/* Day headings over the feed's cards (spec §4); a day's cards sit close
+   under it, and the next day's heading leaves a gap. */
+.feed-day {
+  font-family: var(--mono);
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ink-soft);
+  margin: 0 0 8px;
+  scroll-margin-top: 16px;
+}
+.feed-day + .note-list { margin-bottom: 26px; }
+
+.jump-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 22px 0 6px; }
+.jump-form .sidebar-heading { flex-basis: 100%; margin: 0; }
+.jump-form input[type="month"] {
+  font-family: var(--mono);
+  font-size: 14px;
+  padding: 5px 6px;
+  border: 1px solid var(--rule);
+  background: var(--card);
+  color: var(--ink);
+}
+.jump-form .btn-quiet { padding: 5px 12px; }
+
 .note-card:hover { background: #fff; }
 
 .note-card-top {

@@ -115,7 +115,22 @@ tables, which behave the same.
   are not counted; an all-blank or empty body counts as 0.
 - The **feed** (`/`) lists all non-deleted notes ordered by sort date
   descending, most recent first, ties broken by id descending, one page
-  at a time (§4.2). Each entry is a card showing a stamped meta row
+  at a time (§4.2), under **day headings**: "Today", "Yesterday", then
+  "Monday 5 October" (with the year when it isn't this one), from each
+  note's sort date and the server's local date. A day that a page break
+  cuts gets its heading on both pages. Lists filtered by labels,
+  `is:`/`has:` filters or dates (§7) keep the headings, since they're in
+  the same order; a search with words is ranked by relevance, so it has
+  none.
+- **Jump to a month**: on a dated list the sidebar has a month field
+  (`<input type="month">`; `YYYY-MM` or `YYYY` typed where browsers show
+  a plain box). Go opens the list on the page where that month's notes
+  start, at the heading of its newest day (`/?month=2025-03` redirects to
+  `/?page=N#d-2025-03-31`), keeping the search. A month with no notes
+  lands on the next older day; one newer than everything, at the top;
+  one older than everything, on the last page. It counts the notes dated
+  after the month in SQL (`db.date_position`, 3–9 ms on ten years of
+  notes). Each entry is a card showing a stamped meta row
   (`No. <id>` / sort date / line count, plus `N files` when it has
   attachments, §9.4, and `N backlinks` when other notes reference it,
   §6.5 — each badge omitted entirely when its count is zero) and a

@@ -28,6 +28,15 @@
   </nav>
   {% endif %}
 
+  {% if days %}
+  <form class="jump-form" method="get" action="{{ url_for('notes.feed') }}">
+    <label class="sidebar-heading" for="jump-month">Jump to</label>
+    {% if query %}<input type="hidden" name="q" value="{{ query }}">{% endif %}
+    <input type="month" id="jump-month" name="month" placeholder="YYYY-MM" required>
+    <button type="submit" class="btn-quiet">Go</button>
+  </form>
+  {% endif %}
+
   <details class="search-tips">
     <summary>Search tips</summary>
     <dl>
@@ -57,7 +66,14 @@
   {% endif %}
 
   {% if notes %}
-    {{ note_card_list(notes) }}
+    {% if days %}
+      {% for d in days %}
+        <h2 class="feed-day" id="d-{{ d['date'] }}">{{ d['heading'] }}</h2>
+        {{ note_card_list(d['notes']) }}
+      {% endfor %}
+    {% else %}
+      {{ note_card_list(notes) }}
+    {% endif %}
     {{ pagination(pager) }}
   {% else %}
     <div class="empty-state">

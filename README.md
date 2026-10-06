@@ -14,7 +14,9 @@ in [spec.md](spec.md).
 ## Features
 
 - **Feed** of all notes, most recent by *sort date* first, 50 per page
-  (numbered pages, not infinite scroll). Each entry shows a stamped header
+  (numbered pages, not infinite scroll), under day headings ("Today",
+  "Yesterday", "Monday 5 October"), with **Jump to** a month in the
+  sidebar. Each entry shows a stamped header
   (note number, sort date, line count, plus file and backlink counts when
   non-zero) and a snippet that is the rendered markdown of just the first
   line. Click a card to expand it in place to the full rendered note, its

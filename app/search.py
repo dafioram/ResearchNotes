@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 
 _TOKEN_RE = re.compile(r'(-?)"([^"]*)"?|(\S+)')
 _LABEL_RE = re.compile(r"#([^\W\d_](?:[\w.-]*[^\W_])?)")  # the label rule, spec §6.1
@@ -55,6 +55,12 @@ class Query:
                     or self.unlinked or self.has_file or self.has_later or self.after or self.before)
 
     @property
+    def in_date_order(self) -> bool:
+        """Whether results come newest first (nothing to rank by), so the
+        feed can show day headings and jump to a month."""
+        return not self.words and not self.number
+
+    @property
     def only_label(self) -> str | None:
         """The label, when the query is nothing but one #label (which the
         feed has a quicker way to list, db.list_notes_page)."""
@@ -71,16 +77,29 @@ def _phrase(text: str, prefix: bool = False) -> str | None:
     return '"' + text.replace('"', '""') + '"' + ("*" if prefix else "")
 
 
-def _period_start(text: str) -> str | None:
-    """'2025' / '2025-03' / '2025-03-14' -> the first day of that period."""
-    m = _DATE_RE.fullmatch(text)
+def period(text: str) -> tuple[str, str] | None:
+    """'2025' / '2025-03' / '2025-03-14' -> (the first day of that period,
+    the first day after it), or None if it isn't a real date."""
+    m = _DATE_RE.fullmatch(text.strip())
     if not m:
         return None
     year, month, day = int(m[1]), int(m[2] or 1), int(m[3] or 1)
     try:
-        return date(year, month, day).isoformat()
-    except ValueError:
+        start = date(year, month, day)
+        if m[3]:
+            end = start + timedelta(days=1)
+        elif m[2]:
+            end = date(year + month // 12, month % 12 + 1, 1)
+        else:
+            end = date(year + 1, 1, 1)
+    except (ValueError, OverflowError):
         return None
+    return start.isoformat(), end.isoformat()
+
+
+def _period_start(text: str) -> str | None:
+    bounds = period(text)
+    return bounds[0] if bounds else None
 
 
 def parse(raw: str) -> Query:

@@ -326,6 +326,21 @@ def lookup_notes(text: str, exclude: int | None = None, limit: int = LOOKUP_SIZE
     return found[:limit]
 
 
+def date_position(q, before: str) -> tuple[int, str | None]:
+    """For notes matching a search.Query in feed order (newest first): how
+    many are dated `before` or later, and the date of the newest one dated
+    earlier -- i.e. where in the list the notes before `before` start, and
+    which day that is (None if there are none). For jumping to a month."""
+    from_where, params, _, _, count_from = _search_parts(q)
+    db = get_db()
+    newer = db.execute(f"SELECT COUNT(*) {count_from} AND n.sort_date >= ?", params + [before]).fetchone()[0]
+    row = db.execute(
+        f"SELECT n.sort_date {from_where} AND n.sort_date < ? ORDER BY n.sort_date DESC LIMIT 1",
+        params + [before],
+    ).fetchone()
+    return newer, (row[0] if row else None)
+
+
 def search_notes(raw: str):
     """Every note matching the search text `raw`, best first."""
     from . import search
