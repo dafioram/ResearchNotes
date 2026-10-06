@@ -823,6 +823,14 @@ kbd {
 .legend-ghost { border: 1.5px dashed var(--danger); }
 .legend-broken { width: 18px; height: 0; border-top: 2px dashed var(--danger); background: none; }
 
+.graph-capped {
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--label-fg);
+  background: var(--label-bg);
+  border: 1px solid var(--label-fg);
+  padding: 2px 8px;
+}
 .graph-hint { font-size: 13px; color: var(--ink-faint); }
 
 .graph-tip {

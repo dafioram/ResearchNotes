@@ -562,11 +562,12 @@ def graph_ego(note_id):
     if row is None:
         abort(404)
     hops = request.args.get("hops", default=1, type=int)
-    hops = max(1, min(hops, 5))
+    hops = max(1, min(hops, db.GRAPH_MAX_HOPS))
     return render_template(
         "graph.html",
         center=note_id,
         hops=hops,
+        max_hops=db.GRAPH_MAX_HOPS,
         title=md.first_line_text(row["body"]) or "(empty note)",
         has_connections=db.note_has_connections(note_id),
     )
@@ -577,7 +578,7 @@ def api_graph_ego(note_id):
     if db.get_note(note_id) is None:
         abort(404)
     hops = request.args.get("hops", default=1, type=int)
-    hops = max(1, min(hops, 5))
+    hops = max(1, min(hops, db.GRAPH_MAX_HOPS))
     return jsonify(db.get_graph_data(center_id=note_id, hops=hops))
 
 
