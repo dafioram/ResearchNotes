@@ -14,18 +14,50 @@
     {% endfor %}
   </nav>
 
-  {% if labels %}
-  <p class="sidebar-heading">Labels</p>
-  <nav class="label-list" aria-label="Filter by label">
-    {% for l in labels %}
-      <a class="label-row {% if l['active'] %}active{% endif %}"
-         {% if l['active'] %}aria-current="true"{% endif %}
-         href="{{ l['url'] }}">
-        <span class="label-name">#{{ l['name'] }}</span>
-        <span class="count">{{ l['count'] }}</span>
-      </a>
+  {% if labels['entries'] %}
+  {# Labels as chips; "#prefix-*" groups open in place; order switch;
+     filter box; the first few, then Show all (labels.py, feed.js). #}
+  <div class="sidebar-heading labels-heading">
+    <span>Labels</span>
+    <span class="label-order" aria-label="List labels by">
+      {% for key, name in labels['orders'].items() %}
+        {% if key == labels['order'] %}<strong aria-current="true">{{ name }}</strong>
+        {% else %}<a href="{{ url_for('notes.label_order', order=key, next=request.full_path.rstrip('?')) }}">{{ name }}</a>{% endif %}
+      {% endfor %}
+    </span>
+  </div>
+  {% if labels['label_count'] > 12 %}
+    <input type="search" class="label-filter" id="label-filter" autocomplete="off"
+           placeholder="Filter {{ labels['label_count'] }} labels&hellip;" aria-label="Filter labels">
+  {% endif %}
+  <nav class="label-chips{% if labels['capped'] %} capped{% endif %}" id="label-chips" aria-label="Filter by label">
+    {% for e in labels['entries'] %}
+      {% set over = ' over-cap' if e['over_cap'] else '' %}
+      {% if e['kind'] == 'group' %}
+        <span class="chip-group{{ over }}" data-name="{{ e['name'] }}">
+          <a class="chip group{% if e['active'] %} active{% endif %}" href="{{ e['url'] }}"
+             {% if e['active'] %}aria-current="true"{% endif %}
+             title="Notes with any #{{ e['name'] }} label">#{{ e['name'] }}-*<span class="n">{{ e['count'] }}</span></a><button
+             type="button" class="chip-caret" aria-expanded="{{ 'true' if e['open'] else 'false' }}"
+             aria-controls="labels-{{ e['name'] }}" aria-label="Show the #{{ e['name'] }} labels">{{ '▾' if e['open'] else '▸' }}</button>
+        </span>
+        <span class="chip-sub{{ over }}" id="labels-{{ e['name'] }}" data-group="{{ e['name'] }}"
+              {% if not e['open'] %}hidden{% endif %}>
+          {% for c in e['children'] %}
+            <a class="chip{% if c['active'] %} active{% endif %}" href="{{ c['url'] }}" data-name="{{ c['name'] }}"
+               {% if c['active'] %}aria-current="true"{% endif %} title="#{{ c['name'] }}">{{ c['short'] }}<span class="n">{{ c['count'] }}</span></a>
+          {% endfor %}
+        </span>
+      {% else %}
+        <a class="chip{% if e['active'] %} active{% endif %}{{ over }}" href="{{ e['url'] }}" data-name="{{ e['name'] }}"
+           {% if e['active'] %}aria-current="true"{% endif %}>#{{ e['name'] }}<span class="n">{{ e['count'] }}</span></a>
+      {% endif %}
     {% endfor %}
   </nav>
+  {% if labels['capped'] %}
+    <button type="button" class="show-all" id="labels-show-all">Show all {{ labels['label_count'] }} labels ({{ labels['hidden'] }} more) &#9662;</button>
+  {% endif %}
+  <p class="label-filter-count" id="label-filter-count" hidden></p>
   {% endif %}
 
   {% if days %}
@@ -47,6 +79,7 @@
       <dt>#learning #memory</dt><dd>either label</dd>
       <dt>+#draft</dt><dd>must have the label</dd>
       <dt>-#draft</dt><dd>without the label</dd>
+      <dt>#physics-*</dt><dd>#physics or any #physics-&hellip;</dd>
       <dt>is:unlinked</dt><dd>no [[links]] in or out</dd>
       <dt>has:file</dt><dd>with an attachment</dd>
       <dt>has:later</dt><dd>a [[later]] link to fill in</dd>

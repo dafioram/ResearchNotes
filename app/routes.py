@@ -23,6 +23,7 @@ from werkzeug.utils import secure_filename
 
 from . import activity
 from . import db
+from . import labels as label_list
 from . import markdown as md
 from . import search
 
@@ -192,11 +193,9 @@ def feed():
         q = search.toggle(raw, token)
         return base + "?q=" + quote_plus(q, safe="!$'()*,/:;?@") if q else base
 
-    labels = [
-        {"name": l["name"], "count": l["count"], "url": toggle_url("#" + l["name"]),
-         "active": l["name"] in query.labels or l["name"] in query.required_labels}
-        for l in db.get_labels_with_counts()
-    ]
+    order = request.cookies.get(label_list.COOKIE)
+    labels = label_list.sidebar(query, order if order in label_list.ORDERS else label_list.DEFAULT_ORDER,
+                                toggle_url)
     views = [
         {"label": label, "hint": hint, "url": toggle_url(token), "active": search.has_token(raw, token)}
         for token, label, hint in VIEWS
@@ -255,6 +254,20 @@ def _by_day(cards) -> list[dict]:
             days.append({"date": card["sort_date"], "heading": day_heading(card["sort_date"]), "notes": []})
         days[-1]["notes"].append(card)
     return days
+
+
+@bp.route("/labels/order/<order>")
+def label_order(order):
+    """Remember how the feed sidebar lists labels (a cookie, so the server
+    lists them that way straight away), and go back to where it was set."""
+    back = request.args.get("next", "")
+    if not back.startswith("/") or back.startswith(("//", "/\\")):
+        back = url_for("notes.feed")  # only ever back into this app
+    response = redirect(back)
+    if order in label_list.ORDERS:
+        response.set_cookie(label_list.COOKIE, order, max_age=10 * 365 * 24 * 3600,
+                            samesite="Lax", httponly=True)
+    return response
 
 
 @bp.route("/random")

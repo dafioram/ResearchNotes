@@ -8,6 +8,7 @@ a quick look, operators when they're wanted:
     retriev*             words starting with "retriev"
     -flashcards          without that word (or -"a phrase")
     #learning #memory    carrying either label (any of those typed)
+    #physics-*           carrying #physics or any #physics-... label
     +#draft              must carry it, whatever else (several: all of them)
     -#draft              not carrying it
     is:unlinked          no [[links]] in or out (what Orphans listed)
@@ -31,6 +32,19 @@ from datetime import date, timedelta
 
 _TOKEN_RE = re.compile(r'(-?)"([^"]*)"?|(\S+)')
 _LABEL_RE = re.compile(r"#([^\W\d_](?:[\w.-]*[^\W_])?)")  # the label rule, spec §6.1
+# A namespace of labels (spec §6.4): "#physics-*" is #physics and every
+# #physics-... label. The prefix is a label's part before its first "-".
+_NAMESPACE_RE = re.compile(r"#([^\W\d_][\w.]*)-\*")
+
+
+def label_term(text: str) -> str | None:
+    """A typed "#label" or "#namespace-*" as the term the query keeps
+    ("label" / "namespace-*", lowercase), or None if it's neither."""
+    m = _NAMESPACE_RE.fullmatch(text)
+    if m:
+        return m[1].lower() + "-*"
+    m = _LABEL_RE.fullmatch(text)
+    return m[1].lower() if m else None
 _DATE_RE = re.compile(r"(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?")
 FILTERS = {"is:unlinked": "unlinked", "has:file": "has_file", "has:files": "has_file",
            "has:later": "has_later"}
@@ -40,6 +54,7 @@ FILTERS = {"is:unlinked": "unlinked", "has:file": "has_file", "has:files": "has_
 class Query:
     words: list[str] = field(default_factory=list)          # FTS5 terms, all required
     exclude_words: list[str] = field(default_factory=list)  # FTS5 terms, none allowed
+    # label terms: a name, or "prefix-*" for a namespace (label_term)
     labels: list[str] = field(default_factory=list)           # any of these
     required_labels: list[str] = field(default_factory=list)  # all of these
     exclude_labels: list[str] = field(default_factory=list)   # none of these
@@ -122,12 +137,12 @@ def parse(raw: str) -> Query:
         negate = token.startswith("-") and len(token) > 1
         body = token[1:] if negate else token
         lower = body.lower()
-        label = _LABEL_RE.fullmatch(body)
-        required = token.startswith("+") and _LABEL_RE.fullmatch(token[1:])
+        label = label_term(body)
+        required = label_term(token[1:]) if token.startswith("+") else None
         if required:
-            q.required_labels.append(required[1].lower())
+            q.required_labels.append(required)
         elif label:
-            (q.exclude_labels if negate else q.labels).append(label[1].lower())
+            (q.exclude_labels if negate else q.labels).append(label)
         elif lower in FILTERS and not negate:
             setattr(q, FILTERS[lower], True)
         elif lower.startswith(("after:", "before:")) and not negate:
