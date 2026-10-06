@@ -1111,3 +1111,16 @@ def test_feed_filters_by_a_label_in_any_language(client, app):
     assert "#café" in body                                        # in the sidebar, lowercase
     page = client.get("/?q=%23caf%C3%A9").data.decode()         # the label link's URL
     assert f'data-note-id="{cafe}"' in page and "Tea" not in page
+
+
+def test_line_endings_from_a_browser_are_stored_as_newlines(client, app):
+    # A form posts a textarea's text with \r\n; stored as \n, or every
+    # header would end in \r and fenced code would start with a blank line.
+    client.post("/notes/new", data={"body": "# Title\r\n\r\n```py\r\ncode\r\n```", "sort_date": "2026-01-01"})
+    with app.app_context():
+        [row] = dbmod.list_notes()
+        assert row["body"] == "# Title\n\n```py\ncode\n```"
+        dbmod.update_note(row["id"], "a\r\nb\rc", "2026-01-01")
+        assert dbmod.get_note(row["id"])["body"] == "a\nb\nc"
+    html = client.get(f"/notes/{row['id']}").data.decode()
+    assert "\r" not in html.split('id="view-pane"')[1].split("</div>")[0]

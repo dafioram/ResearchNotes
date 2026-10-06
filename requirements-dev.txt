@@ -1,0 +1,6 @@
+# For running the tests (not needed to run the app).
+-r requirements.txt
+pytest
+# Browser tests (pytest -m browser): also run `playwright install chromium`,
+# or point CHROMIUM_PATH at an existing Chromium.
+playwright
