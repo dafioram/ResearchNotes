@@ -135,11 +135,20 @@ def _strip_code(text: str, stash: _Stash) -> str:
     return text
 
 
+# A bare address in raw text, as AUTOLINK_RE finds it in escaped text
+# (where a raw "<" is "&lt;").
+_RAW_AUTOLINK_RE = re.compile(r"(?<![\w/])https?://[^\s\"\x00<]+", re.IGNORECASE)
+
+
 def extract_labels(body: str) -> set[str]:
     """Return the set of distinct label names (lowercased) used in a note,
-    ignoring anything inside code blocks/spans."""
+    ignoring anything inside code or math -- and, as rendering does, inside
+    a [[later: hint]], a [text](url) link or a bare address, which are set
+    aside before labels there: what's stored is exactly what shows."""
     stash = _Stash()
     stripped = _strip_code(body, stash)
+    for pattern in (LATER_RE, LINK_RE, _RAW_AUTOLINK_RE):
+        stripped = pattern.sub("\x00", stripped)
     return {m.group(1).lower() for m in _LABEL_IN_TEXT_RE.finditer(stripped)}
 
 
@@ -458,10 +467,14 @@ def _render_lines(lines: list[str], stash: _Stash, existing_ids) -> list[str]:
         aligns = _table_starts(lines, i)
         if aligns is not None:
             def row_html(cells, tag):
-                cells = (cells + [""] * len(aligns))[: len(aligns)]  # pad or cut to the header
+                # A short row is padded to the header's width. A long one
+                # keeps its extra cells: cutting them would hide labels
+                # and links that are still stored from the text.
+                cells = cells + [""] * (len(aligns) - len(cells))
+                cell_aligns = aligns + [""] * (len(cells) - len(aligns))
                 return "<tr>" + "".join(
                     f'<{tag}{f" class={chr(34)}align-{a}{chr(34)}" if a else ""}>{inline(c)}</{tag}>'
-                    for c, a in zip(cells, aligns)) + "</tr>"
+                    for c, a in zip(cells, cell_aligns)) + "</tr>"
 
             head = row_html(_table_cells(line), "th")
             i += 2

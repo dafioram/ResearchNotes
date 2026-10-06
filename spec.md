@@ -496,8 +496,10 @@ other tools and copy back out unchanged:
   a `|` inside code or math never splits a cell, since those are set
   aside first.
 - **Rows** run until a blank line or another block (header, list, quote,
-  rule, code block, another table). A row with too few cells is padded,
-  one with too many is cut, to the header's width. No merged cells and no
+  rule, code block, another table). A row with too few cells is padded
+  to the header's width; one with too many keeps its extra cells (GitHub
+  drops them, but then a label or link in one would be stored without
+  showing). No merged cells and no
   line breaks inside a cell -- a deliberate limit, shared with the other
   tools.
 - **A table ends a paragraph**: a line of text right above the header
@@ -545,6 +547,11 @@ What is and isn't a label:
 - A `|` counts like whitespace before a label, so a table cell written
   without spaces, `|#baseline|`, holds the label `#baseline` (§5.2). The
   same goes outside tables: `a|#b` is a label.
+- Nothing inside a web address, a `[text](url)` link (its text or its
+  address) or a `[[later: hint]]` is a label: rendering sets those aside
+  first and shows them as typed, so they're skipped when labels are
+  stored, too. (`[a #draft](url)` used to store `#draft` without showing
+  it; such notes drop it at their next save or `flask reindex`.)
 - A quote marker at the very start of a line counts as the line's start:
   `>#idea` is a label inside the quote. (Both rules keep what's stored
   as a label identical to what shows as one; property tests,

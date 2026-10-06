@@ -40,9 +40,13 @@ def test_not_a_table(text):
     assert "<table" not in md.render(text)
 
 
-def test_rows_are_padded_or_cut_to_the_header():
+def test_short_rows_are_padded_and_long_rows_keep_their_extra_cells():
     html = md.render("| A | B |\n|---|---|\n| 1 |\n| 1 | 2 | 3 |")
-    assert "<tr><td>1</td><td></td></tr>" in html and "<tr><td>1</td><td>2</td></tr>" in html
+    assert "<tr><td>1</td><td></td></tr>" in html and "<tr><td>1</td><td>2</td><td>3</td></tr>" in html
+    # an extra cell is shown, so a label or link in it is never stored unseen
+    text = "| a |\n|-|\n|---|#lab [[3]]"
+    assert md.extract_labels(text) == {"lab"} and 'href="/?q=%23lab"' in md.render(text)
+    assert md.extract_note_refs(text) == {3} and 'href="/notes/3"' in md.render(text, {3})
 
 
 def test_pipes_in_code_math_and_escapes_dont_split_cells():
@@ -66,6 +70,17 @@ def test_a_table_ends_at_a_blank_line_or_another_block_and_ends_a_paragraph():
 def test_a_label_right_after_a_pipe_is_shown_and_stored(text, labels):
     assert md.extract_labels(text) == labels
     assert 'class="label-tag" href="/?q=%23tag"' in md.render(text)
+
+
+@pytest.mark.parametrize("text", [
+    "http://x.org|#lab",                  # part of the address, which becomes a link
+    "[t](http://x.org|#lab)",             # part of a link's address
+    "[a #lab](http://x.org)",             # inside a link's text: shown as text, not a label
+    "[[later: see #lab]]",                # inside a later hint: shown as typed
+])
+def test_no_label_is_stored_where_none_shows(text):
+    assert md.extract_labels(text) == set()
+    assert "label-tag" not in md.render(text)
 
 
 def test_a_link_in_a_table_shows_its_row_as_the_backlink_passage():
