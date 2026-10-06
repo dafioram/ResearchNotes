@@ -705,6 +705,19 @@ def _restore_code_source(text: str, stash: _Stash) -> str:
     return _PLACEHOLDER_RE.sub(_sub, text)
 
 
+# Math in a plain-text passage, as typed: $$display$$ or $inline$.
+_PASSAGE_MATH_RE = re.compile(MATH_BLOCK_RE.pattern + "|" + MATH_INLINE_RE.pattern)
+
+
+def _inside_math(s: str, pos: int):
+    """The (start, end) of the formula in `s` that `pos` falls strictly
+    inside, if any -- a passage is never cut through one."""
+    for m in _PASSAGE_MATH_RE.finditer(s):
+        if m.start() < pos < m.end():
+            return m.start(), m.end()
+    return None
+
+
 def _clip_before(s: str, n: int) -> tuple[str, bool]:
     if len(s) <= n:
         return s, False
@@ -712,6 +725,9 @@ def _clip_before(s: str, n: int) -> tuple[str, bool]:
     space = cut.find(" ")
     if 0 <= space < 20:  # start on a word boundary if one is close by
         cut = cut[space + 1:]
+    inside = _inside_math(s, len(s) - len(cut))
+    if inside:  # don't start halfway through a formula: drop it
+        cut = s[inside[1]:].lstrip()
     return cut, True
 
 
@@ -722,7 +738,24 @@ def _clip_after(s: str, n: int) -> tuple[str, bool]:
     space = cut.rfind(" ")
     if space > n - 20:
         cut = cut[:space]
+    inside = _inside_math(s, len(cut))
+    if inside:  # don't end halfway through a formula: stop before it
+        cut = s[:inside[0]].rstrip()
     return cut, True
+
+
+def passage_html(text: str, titles: dict) -> Markup:
+    """A backlink passage (plain text) as HTML: [[refs]] as their titles
+    (refs_as_titles), and math -- $...$ or $$...$$ as typed -- marked for
+    KaTeX to draw, inline either way so the row stays one line of text."""
+    parts, pos = [], 0
+    for m in _PASSAGE_MATH_RE.finditer(text):
+        parts.append(refs_as_titles(text[pos:m.start()], titles))
+        tex = m.group(1) if m.group(1) is not None else m.group(2)
+        parts.append(Markup('<span class="math math-inline">${}$</span>').format(tex))
+        pos = m.end()
+    parts.append(refs_as_titles(text[pos:], titles))
+    return Markup("").join(parts)
 
 
 def ref_contexts(body: str, target_id: int, width: int = 240) -> list[dict]:
@@ -737,7 +770,9 @@ def ref_contexts(body: str, target_id: int, width: int = 240) -> list[dict]:
     - Mentions inside code are not links, so they're never returned
       (same rule as extract_note_refs).
     - Markdown syntax is removed; other [[refs]] and #labels in the passage
-      stay as their literal text.
+      stay as their literal text, math as typed (passage_html marks it to
+      be drawn), an image as "Figure: <caption>".
+    - The trim never cuts through a formula.
     """
     stash = _Stash()
     stripped = _strip_code(body, stash)
@@ -753,6 +788,9 @@ def ref_contexts(body: str, target_id: int, width: int = 240) -> list[dict]:
                 continue  # it's in the title line
 
             marked = unit[: m.start()] + _SENTINEL + unit[m.end():]
+            # An image reads as "Figure: <caption>" -- just the caption
+            # wouldn't say there was a picture.
+            marked = IMAGE_RE.sub(lambda i: f"Figure: {i.group(1)}" if i.group(1).strip() else "Figure", marked)
             plain = _to_plain(render(_restore_code_source(marked, stash)))
             if _SENTINEL not in plain:
                 continue

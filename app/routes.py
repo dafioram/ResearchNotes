@@ -107,18 +107,24 @@ def _backlink_items(note_id):
     """Each note linking to `note_id`: its first line as a title, plus the
     passage around every mention of [[note_id]] in it (why it links here).
     The mention reads "this note" -- the list sits under that note, so its
-    title would only repeat on every row; other [[refs]] show as titles."""
+    title would only repeat on every row; other [[refs]] show as titles,
+    and math in a passage is drawn."""
     rows = [(b, md.first_line_text(b["body"]), md.ref_contexts(b["body"], note_id))
             for b in db.get_backlinks(note_id)]
-    titled = _titled([t for _, text, mentions in rows
-                      for t in [text] + [m["before"] + m["after"] for m in mentions]])
+    titles = db.note_titles({int(i) for _, text, mentions in rows
+                             for t in [text] + [m["before"] + m["after"] for m in mentions]
+                             for i in md.NOTE_REF_RE.findall(t)})
+
+    def passage(t):   # math drawn too
+        return md.passage_html(t, titles)
+
     return [
         {
             "id": b["id"],
             "sort_date": b["sort_date"],
-            "text": titled(text),
-            "mentions": [{**m, "before": titled(m["before"]), "ref": "this note",
-                          "after": titled(m["after"])} for m in mentions],
+            "text": md.refs_as_titles(text, titles),
+            "mentions": [{**m, "before": passage(m["before"]), "ref": "this note",
+                          "after": passage(m["after"])} for m in mentions],
         }
         for b, text, mentions in rows
     ]
