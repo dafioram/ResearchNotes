@@ -7,11 +7,14 @@ files, the feed's cards and label chips, the graph, confirmations.
 Run with `pytest -m browser` (plain `pytest` leaves them out). They skip
 themselves when Playwright or a Chromium build isn't installed; set
 CHROMIUM_PATH to use an existing Chromium. Any JavaScript error on a page
-fails the test that caused it.
+fails the test that caused it. A failing test leaves a screenshot of its
+page in test-results/ (CI keeps them).
 """
 
 import os
+import re
 import threading
+from pathlib import Path
 
 import pytest
 from werkzeug.serving import make_server
@@ -19,6 +22,15 @@ from werkzeug.serving import make_server
 from app import db as dbmod
 
 CHROMIUM_FALLBACK = "/opt/pw-browsers/chromium"
+SCREENSHOTS = Path(__file__).resolve().parents[2] / "test-results"
+
+
+@pytest.hookimpl(hookwrapper=True)
+def pytest_runtest_makereport(item, call):
+    """Keep each phase's result on the test, so `page` can tell it failed."""
+    outcome = yield
+    report = outcome.get_result()
+    setattr(item, f"report_{report.when}", report)
 
 
 @pytest.fixture(scope="session")
@@ -78,11 +90,16 @@ def live(app):
 
 
 @pytest.fixture
-def page(browser, live):
+def page(browser, live, request):
     context = browser.new_context(base_url=live.url, viewport={"width": 1440, "height": 900})
     pg = context.new_page()
     errors = []
     pg.on("pageerror", lambda error: errors.append(str(error)))
     yield pg
+    report = getattr(request.node, "report_call", None)
+    if (report is None or report.failed) and not pg.is_closed():
+        SCREENSHOTS.mkdir(exist_ok=True)
+        name = re.sub(r"[^\w.-]+", "_", request.node.name)
+        pg.screenshot(path=str(SCREENSHOTS / f"{name}.png"), full_page=True)
     context.close()
     assert not errors, f"JavaScript errors: {errors}"

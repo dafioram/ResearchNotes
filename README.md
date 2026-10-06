@@ -1,5 +1,7 @@
 # Research Notes
 
+[![Tests](https://github.com/dafioram/ResearchNotes/actions/workflows/tests.yml/badge.svg)](https://github.com/dafioram/ResearchNotes/actions/workflows/tests.yml)
+
 A single-user, no-auth Flask + SQLite app for atomic research notes,
 built around the [Zettelkasten method](https://en.wikipedia.org/wiki/Zettelkasten):
 short, linkable, taggable notes rather than long documents.
@@ -292,7 +294,13 @@ playwright install chromium          # once (or set CHROMIUM_PATH to an existing
 pytest -m browser
 ```
 
-Without Playwright or a Chromium they skip themselves.
+Without Playwright or a Chromium they skip themselves. A failing browser
+test leaves a screenshot of its page in `test-results/`.
+
+**CI** (`.github/workflows/tests.yml`) runs on every pull request and every
+push to `main`: the fast suite, the browser tests (keeping screenshots of
+any that fail), and a Docker check that builds the image, starts it, and
+saves and finds a note.
 
 Beyond tests of each feature, the fast suite also has:
 
