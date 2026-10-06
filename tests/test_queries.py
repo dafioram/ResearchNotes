@@ -76,13 +76,15 @@ def _with_label(name):
 def test_label_pages_match_the_feed_order_whichever_way_they_are_read(app):
     _labelled_collection(app)
     with app.app_context():
-        for name in ("common", "rare", "missing"):  # walked, fetched by label, empty
-            expected = _with_label(name)
-            assert dbmod.label_note_count(name) == len(expected)
+        # walked, fetched by label, empty; and either of two labels, each way
+        for names in (["common"], ["rare"], ["missing"], ["common", "rare"], ["rare", "missing"]):
+            expected = [i for i in (r["id"] for r in dbmod.list_notes())
+                        if i in {n for name in names for n in _with_label(name)}]
+            assert dbmod.labels_note_count(names) == len(expected)
             for offset in (0, 10, 40):
-                rows, total = dbmod.list_notes_page(name, 10, offset)
+                rows, total = dbmod.list_notes_page(names, 10, offset)
                 assert total == len(expected)
-                assert [r["id"] for r in rows] == expected[offset:offset + 10], (name, offset)
+                assert [r["id"] for r in rows] == expected[offset:offset + 10], (names, offset)
 
 
 def test_label_counts_leave_out_notes_in_trash(app):

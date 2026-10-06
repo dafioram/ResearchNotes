@@ -548,10 +548,15 @@ once, from scratch (§13).
 The feed's sidebar lists every label currently in use, one per row with
 its usage count, most-used first. A label is a search term (§7):
 clicking one adds `#name` to the current search, and clicking it again
-(it's highlighted while it's in the search) takes it out. So labels
-combine with each other (all must be there), with `-#name` to leave one
-out, and with words, dates and the other filters — everything in a
-search is ANDed. Old `/?label=name` links redirect to the same search.
+(it's highlighted while it's in the search) takes it out. Labels
+together match **any** of them — clicking a second label widens the
+list: `#memory #learning` is notes with either (or both). `+#name`
+requires a label whatever else is there (`#memory +#draft`: memory
+notes that are drafts; `+#a +#b`: both), and `-#name` leaves it out.
+Labels then combine with words, dates and the other filters, which are
+all required. Old `/?label=name` links redirect to the same search.
+(Several labels used to mean all of them; any-of was asked for, and
+`+#` keeps the narrowing.)
 
 How they stay quick on a big collection (§4.2):
 
@@ -559,14 +564,17 @@ How they stay quick on a big collection (§4.2):
   no label rows (§3), so there's nothing to check. On ten years of notes
   that's about 3 ms; checking each labelled note's row for Trash took
   over 100, on every feed and note page.
-- **A label's page** can be read two ways, and the quicker one depends on
-  how common the label is. Walking the feed in order and checking each
-  note's labels stops as soon as the page is full — quick for a common
-  label. Taking the label's notes and sorting them reads every one —
-  quick for a rare label. A step of the walk costs about a tenth of
+- **A label's page** — or a page of any of several labels, when that's
+  all the search is — can be read two ways, and the quicker one depends
+  on how common the labels are. Walking the feed in order and checking
+  each note's labels stops as soon as the page is full — quick for a
+  common label. Taking the labels' notes and sorting them reads every
+  one — quick for rare labels. A step of the walk costs about a tenth of
   reading a note, so `list_notes_page` walks when that should take fewer
-  than ten steps per note the label has, and fetches by label otherwise.
-  Both give the same notes in the same order.
+  than ten steps per note the labels have, and fetches by label
+  otherwise. Both give the same notes in the same order. On ten years of
+  notes: either of two common labels 17 ms, of two rare ones 12 ms (a
+  single walk took 68 ms for the rare pair).
 
 ### 6.5 Backlinks
 
@@ -649,7 +657,8 @@ feed's sidebar has the same list folded under "Search tips"):
 | `"spaced repetition"` | with that exact phrase |
 | `retriev*` | with a word starting `retriev` |
 | `-flashcards`, `-"rote learning"` | without that word / phrase |
-| `#learning` | carrying the label; several labels must all be there |
+| `#learning`, `#learning #memory` | carrying the label — or any of the labels typed (§6.4) |
+| `+#draft` | carrying the label, whatever else is there; several `+#`: all of them |
 | `-#draft` | not carrying the label |
 | `is:unlinked` | with no `[[links]]` in or out (§8) |
 | `has:file` (or `has:files`) | with at least one attachment (§9.4) |

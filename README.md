@@ -32,7 +32,8 @@ in [spec.md](spec.md).
   | `"spaced repetition"` | with that exact phrase |
   | `retriev*` | with a word starting "retriev" |
   | `-flashcards` | without that word (or `-"a phrase"`) |
-  | `#learning -#draft` | with / without a label (several labels: all of them) |
+  | `#learning #memory` | with either label (any of the labels typed) |
+  | `+#draft` / `-#draft` | that must have / mustn't have the label |
   | `is:unlinked` | with no `[[links]]` in or out |
   | `has:file` | with an attachment |
   | `has:later` | with a `[[later]]` link still to fill in |
@@ -88,8 +89,9 @@ in [spec.md](spec.md).
   backlink shows the linking note's header plus the passage around the
   `[[link]]` itself, so you can see why it links here.
 - **Label list** in the feed's sidebar with usage counts; clicking a label
-  adds `#label` to the search (clicking it again takes it out), so labels
-  combine with each other and with anything typed. A label inside a note
+  adds `#label` to the search (clicking it again takes it out). Several
+  labels show notes with any of them; `+#label` requires one, and labels
+  combine with anything typed. A label inside a note
   links to the same search.
 - **Graph of a note** (rendered with Cytoscape.js, bundled so it works
   offline), full window width: the notes related to that note, out to

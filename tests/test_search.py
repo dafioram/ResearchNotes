@@ -39,10 +39,18 @@ def test_a_number_alone_is_a_number_search():
     assert search.parse("1234 notes").number is None
 
 
-def test_only_label():
-    assert search.parse("#memory").only_label == "memory"
-    assert search.parse("#memory word").only_label is None
-    assert search.parse("#a #b").only_label is None
+def test_plus_label_is_required_and_a_bare_plus_is_a_word():
+    q = search.parse("#a #b +#c -#d +word")
+    assert (q.labels, q.required_labels, q.exclude_labels) == (["a", "b"], ["c"], ["d"])
+    assert q.words == ['"+word"']
+
+
+def test_only_labels():
+    assert search.parse("#memory").only_labels == ["memory"]
+    assert search.parse("#a #b").only_labels == ["a", "b"]
+    assert search.parse("+#memory").only_labels is None
+    assert search.parse("#memory +#learning").only_labels is None
+    assert search.parse("#memory word").only_labels is None
 
 
 def test_toggle_adds_and_removes_a_term():
@@ -84,7 +92,11 @@ def _found(app, raw):
     ("repetition -draft", [1]),             # "-word" excludes a word...
     ('repetition -"spaced kind"', [1]),     # ...or a phrase
     ("#memory", [1, 2]),
-    ("#memory #learning", [2]),             # several labels: all of them
+    ("#memory #learning", [1, 2, 3]),       # several labels: any of them
+    ("#memory +#learning", [2]),            # +#label: must have it
+    ("+#memory +#learning", [2]),           # several +#: all of them
+    ("#draft #learning -#memory", [3, 4]),
+    ("#memory #draft repetition", [1, 4]),  # either label, and the word
     ("#learning -#memory", [3]),
     ("is:unlinked", [2, 3, 4]),             # 1 is linked to, 5 links out
     ("after:2025-03 before:2025-07", [2, 3]),

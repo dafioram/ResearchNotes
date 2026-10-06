@@ -7,7 +7,8 @@ a quick look, operators when they're wanted:
     "spaced repetition"  that exact phrase
     retriev*             words starting with "retriev"
     -flashcards          without that word (or -"a phrase")
-    #learning            carrying the label; several must all be there
+    #learning #memory    carrying either label (any of those typed)
+    +#draft              must carry it, whatever else (several: all of them)
     -#draft              not carrying it
     is:unlinked          no [[links]] in or out (what Orphans listed)
     has:file             with an attachment (what Attachments listed)
@@ -39,8 +40,9 @@ FILTERS = {"is:unlinked": "unlinked", "has:file": "has_file", "has:files": "has_
 class Query:
     words: list[str] = field(default_factory=list)          # FTS5 terms, all required
     exclude_words: list[str] = field(default_factory=list)  # FTS5 terms, none allowed
-    labels: list[str] = field(default_factory=list)
-    exclude_labels: list[str] = field(default_factory=list)
+    labels: list[str] = field(default_factory=list)           # any of these
+    required_labels: list[str] = field(default_factory=list)  # all of these
+    exclude_labels: list[str] = field(default_factory=list)   # none of these
     unlinked: bool = False
     has_file: bool = False
     has_later: bool = False
@@ -51,7 +53,8 @@ class Query:
 
     @property
     def is_empty(self) -> bool:
-        return not (self.words or self.exclude_words or self.labels or self.exclude_labels
+        return not (self.words or self.exclude_words or self.labels or self.required_labels
+                    or self.exclude_labels
                     or self.unlinked or self.has_file or self.has_later or self.after or self.before)
 
     @property
@@ -61,11 +64,11 @@ class Query:
         return not self.words and not self.number
 
     @property
-    def only_label(self) -> str | None:
-        """The label, when the query is nothing but one #label (which the
-        feed has a quicker way to list, db.list_notes_page)."""
-        if len(self.labels) == 1 and Query(labels=self.labels) == self:
-            return self.labels[0]
+    def only_labels(self) -> list[str] | None:
+        """The labels, when the query is nothing but #labels (any of them),
+        which the feed has a quicker way to list (db.list_notes_page)."""
+        if self.labels and Query(labels=self.labels) == self:
+            return self.labels
         return None
 
 
@@ -120,7 +123,10 @@ def parse(raw: str) -> Query:
         body = token[1:] if negate else token
         lower = body.lower()
         label = _LABEL_RE.fullmatch(body)
-        if label:
+        required = token.startswith("+") and _LABEL_RE.fullmatch(token[1:])
+        if required:
+            q.required_labels.append(required[1].lower())
+        elif label:
             (q.exclude_labels if negate else q.labels).append(label[1].lower())
         elif lower in FILTERS and not negate:
             setattr(q, FILTERS[lower], True)

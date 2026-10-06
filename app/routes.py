@@ -194,7 +194,7 @@ def feed():
 
     labels = [
         {"name": l["name"], "count": l["count"], "url": toggle_url("#" + l["name"]),
-         "active": l["name"] in query.labels}
+         "active": l["name"] in query.labels or l["name"] in query.required_labels}
         for l in db.get_labels_with_counts()
     ]
     views = [
