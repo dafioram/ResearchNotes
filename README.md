@@ -132,11 +132,13 @@ in [spec.md](spec.md).
   one uploaded file can be linked from several notes) and content-addressed
   by SHA-256 hash so identical files are only stored once -- uploading the
   same file to a second note links it instead of duplicating storage, no
-  separate "attach an existing file" picker needed. No inline image
-  markdown -- attachments show as a plain list on the note. To attach,
-  drop files anywhere on the note while editing (several at once is
-  fine); adding or removing a file happens in place, without reloading,
-  so unsaved text is never lost. Images, PDFs, plain text, audio and
+  separate "attach an existing file" picker needed. Attachments show as a
+  list on the note (with Insert and Copy, to put one into the text);
+  images can also show in the text itself (see Images below). To attach,
+  drop files anywhere on the note while editing, or paste a screenshot
+  (several at once is fine; a new note is saved first); adding or
+  removing a file happens in place, without reloading, so unsaved text
+  is never lost. Images, PDFs, plain text, audio and
   video open in the browser; anything else (HTML and SVG included)
   downloads. A file is deleted from disk once no note uses it (removed
   from its last note, or its last note deleted permanently; a note in
@@ -167,7 +169,14 @@ hold bold, code, math, links, `#labels` and `[[refs]]`; `\|` is a literal
 pipe. Pasting cells copied from a spreadsheet, or comma-separated data,
 makes a table for you (Ctrl+Z gives back the plain paste).
 
-Not supported by design: image syntax (`![]()`), raw HTML passthrough
+**Images**: drop an image (or paste a screenshot) while editing and it
+goes into the text at the cursor as `![caption](/files/191ff6f6b235)` --
+a stored file, by the start of its hash. Alone on a line it's a figure
+with its caption below. Any note can show any stored image (Copy beside
+an attachment gives you the text), and doing so attaches it to that note
+too. Other files are only attached; `[name](/files/<hash>)` links to one.
+
+Not supported by design: images from other websites, raw HTML passthrough
 (everything is escaped), and nested/complex inline formatting inside link
 text. Raw text always wins over ambiguous or malformed syntax rather
 than throwing an error.

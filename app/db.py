@@ -120,6 +120,7 @@ def create_note(body: str, sort_date: str) -> int:
     note_id = cur.lastrowid
     _sync_note_metadata(note_id, body)
     _log_event("created", note_id, ts)
+    _attach_referenced_files(note_id, body)
     db.commit()
     return note_id
 
@@ -139,6 +140,7 @@ def update_note(note_id: int, body: str, sort_date: str, restored_from: str | No
     _sync_note_metadata(note_id, body)
     if before is not None:
         _log_edit(note_id, before["body"], before["sort_date"], body, sort_date, ts, restored_from)
+        _attach_referenced_files(note_id, body)
     db.commit()
 
 
@@ -804,6 +806,63 @@ def get_graph_data(center_id: int, hops: int = 1, max_nodes: int = GRAPH_MAX_NOD
 def get_attachment_by_hash(file_hash: str):
     db = get_db()
     return db.execute("SELECT * FROM attachments WHERE hash = ?", (file_hash,)).fetchone()
+
+
+# Images a note can show inline (spec §9.5) -- the types browsers display
+# without running anything. SVG is left out: it can carry scripts.
+IMAGE_TYPES = frozenset({"image/png", "image/jpeg", "image/gif", "image/webp", "image/avif", "image/bmp"})
+
+
+def _attachment_by_prefix(db, prefix: str):
+    """The stored file whose hash starts with `prefix` (lowercase hex);
+    None if no file does, False if more than one does. A range on the
+    hash's index, so it reads at most two rows."""
+    rows = db.execute(
+        "SELECT * FROM attachments WHERE hash >= ? AND hash < ? ORDER BY hash LIMIT 2",
+        (prefix, prefix + "g"),
+    ).fetchall()
+    if not rows:
+        return None
+    return rows[0] if len(rows) == 1 else False
+
+
+def get_attachment_by_prefix(prefix: str):
+    """For /files/<hash>: a whole hash, or its first 12 or more characters."""
+    return _attachment_by_prefix(get_db(), prefix.lower())
+
+
+def files_by_prefix(prefixes) -> dict:
+    """For showing images (md.render's `files`): each hash prefix typed in
+    a note -> {"hash", "filename", "image"} for the one file it names, or
+    False if it names more than one. Prefixes naming no file are left out."""
+    db = get_db()
+    found = {}
+    for prefix in prefixes:
+        row = _attachment_by_prefix(db, prefix)
+        if row is False:
+            found[prefix] = False
+        elif row is not None:
+            found[prefix] = {"hash": row["hash"], "filename": row["filename"],
+                             "image": row["mime_type"] in IMAGE_TYPES}
+    return found
+
+
+def _attach_referenced_files(note_id: int, body: str) -> None:
+    """Attach to a note every stored file its text points at (spec §9.5),
+    so a figure shown from another note's file is this note's too: listed
+    under it, counted by has:file, and kept while this note uses it. Never
+    detaches -- taking a file off a note is Remove, as always."""
+    db = get_db()
+    for prefix in md.extract_file_refs(body):
+        row = _attachment_by_prefix(db, prefix)
+        if not row:
+            continue
+        cur = db.execute(
+            "INSERT OR IGNORE INTO note_attachments (note_id, attachment_id) VALUES (?, ?)",
+            (note_id, row["id"]),
+        )
+        if cur.rowcount:
+            _log_attachment_event("attached", note_id, row["id"])
 
 
 def get_attachment(attachment_id: int):

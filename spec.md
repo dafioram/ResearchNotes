@@ -397,9 +397,10 @@ Hand-rolled, not CommonMark. Supported:
 | blank-line-separated paragraphs; single `\n` | `<p>`; `<br>` |
 | `$x^2$` / `$$…$$` | math, drawn by KaTeX (§5.1) |
 | `\| a \| b \|` + `\|---\|--:\|` + rows | `<table>` (§5.2) |
+| `![caption](/files/<hash>)` | an attached image; alone on its line, a `<figure>` (§9.5) |
 
-Deliberately **not** supported: image syntax (`![]()` — attachments are
-a separate, non-inline feature, §9), raw HTML passthrough
+Deliberately **not** supported: images from anywhere but the app's own
+stored files (§9.5), raw HTML passthrough
 (everything is HTML-escaped first, so the table above is genuinely the
 entire vocabulary available — there is no way to smuggle a `<script>`
 tag through a note body).
@@ -948,12 +949,10 @@ used to be kept forever, even when nothing used them.)
 
 ### 9.3 Rendering
 
-No inline image markdown — `![]()` is not part of the supported subset
-(§5). Attachments render as a plain list (filename + size) below a
-note's body on both the standalone view and the inline feed expansion,
-and as an editable list (with Remove) under the editor in Edit mode.
-This was a deliberate simplification: attachments are metadata about a
-note, not part of its markdown content.
+Attachments render as a list (filename, size, **Copy**) below a note's
+body on both the standalone view and the inline feed expansion, and as
+an editable list (**Insert**, **Copy**, **Remove**) under the editor in
+Edit mode. Images can also be shown in the text itself (§9.5).
 
 **Opening a file** (`/files/<hash>`, §14): images (PNG, JPEG, GIF, WebP,
 AVIF, BMP), PDFs, plain text, audio and video open in the browser;
@@ -973,10 +972,13 @@ in favor of dropping); the Attachments section just says "Drop a file
 anywhere on the page to attach it."
 
 - While a file is dragged over the window, an overlay says what dropping
-  will do: "Drop to attach to No. 12", or why it won't — "Switch to Edit
-  to attach files" in View mode, "Save the note first" on a new note that
-  hasn't been saved. A refused drop leaves that explanation up for a
-  couple of seconds, since View has no status line.
+  will do: "Drop to attach to No. 12" ("Drop to save the note and
+  attach" on a new note, which is saved first), or why it won't --
+  "Switch to Edit to attach files" in View mode. A refused drop leaves
+  that explanation up for a couple of seconds, since View has no status
+  line.
+- Dropped images also go into the text at the cursor (§9.5); other files
+  are only attached.
 - The browser's own reaction to a dropped file — opening it in place of
   the page, which would lose unsaved text — is always cancelled on the
   note page, in either mode.
@@ -995,9 +997,10 @@ so unsaved text in the editor is never lost:
   rendered attachment list (`_attachments_edit.html`) — which the page
   swaps in. Without that header (e.g. JavaScript off) the same routes
   flash a message and redirect back to the edit page, as before.
-- Attaching a file never saves the note's text; the two are
-  independent. (Saving first was considered and rejected: it would store
-  half-finished text every time a file is attached.)
+- Attaching a file never saves the note's text, except on a new note,
+  which needs an id first: dropping or pasting onto it saves it, then
+  attaches. (Saving every time was considered and rejected: it would
+  store half-finished text whenever a file is attached.)
 - Result messages appear on the "drop a file" line: "Attached
   figure-3.png.", "Removed dataset.csv from this note.", "figure-3.png
   is already attached." (same bytes uploaded to the same note again), or
@@ -1010,8 +1013,8 @@ so unsaved text in the editor is never lost:
   limit (413) in case the browser check is bypassed.
 - Each upload also returns a fresh View pane, so flipping to View shows
   the new attachment list even if the text wasn't changed.
-- A new, never-saved note has no attachment section — the note needs an
-  id first. Its sort date defaults to today (local time).
+- A new, never-saved note has no attachment section until that first
+  save. Its sort date defaults to today (local time).
 
 ### 9.4 Discovery: `has:file` + count badge
 
@@ -1044,6 +1047,66 @@ casing that breaks the "labels = literally typed in the note" invariant,
 and it would be visually indistinguishable from a real label in the
 label list. A dedicated filter keeps system-derived "notes with X" facts
 structurally separate from user-authored vocabulary.
+
+### 9.5 Images in the text
+
+A note shows a stored image with standard image markdown pointing at it
+by hash: `![Gull Rock layout, v4](/files/191ff6f6b235)`.
+
+- **The hash, not the name.** The reference is the first 12 hex
+  characters of the file's SHA-256 (48 bits: two of one person's files
+  sharing them is vanishingly unlikely; if they did, the reference shows
+  as ambiguous rather than picking one). Any 12 to 64 characters work, in
+  either case. `/files/<hash>` serves a file by such a prefix too, so
+  `[the PDF](/files/4372a0cb0d86)` is a plain link to one.
+- **Any note can show any stored file**, not only its own: the hash names
+  the file wherever it was uploaded.
+- **Showing a file attaches it.** Saving a note whose text points at a
+  stored file -- `![…](/files/…)` or `[…](/files/…)`, outside code and
+  math -- attaches that file to it (logged in History like any attach).
+  So it's listed under the note, counted by `has:file`, and kept while
+  this note uses it even if the note it came from is deleted for good.
+  Taking the reference out of the text doesn't detach it: removing is
+  Remove, as always. If the file is removed while the text still points
+  at it, the reference shows as missing.
+- **What shows:** a stored PNG, JPEG, GIF, WebP, AVIF or BMP shows as an
+  image, never wider than the note, linking to the full-size file. Any
+  other stored file -- SVG included, which can carry scripts -- shows as
+  a link to it. A prefix that names no stored file, or more than one, is
+  shown as typed, in red, saying which. `![…](https://…)` is not an image:
+  nothing is ever loaded from another site (offline it would break, and
+  online it would tell that site what you read). Without a lookup
+  (`md.render` called without `files`, e.g. feed card titles), an image
+  reference is a plain link with its caption.
+- **A line that's just an image is a figure** (`<figure>`), its caption
+  (the alt text) below it, even between other lines of a paragraph; an
+  image in a sentence stays inline. The caption is plain text: no labels
+  or links inside it.
+- **Plain text** (titles inside links, backlink passages, History) shows
+  the caption.
+- **Rendering** sets images aside before links, labels and emphasis, like
+  other links. The lookup is one indexed range read per reference
+  (`db.files_by_prefix`), for the note being shown only.
+
+**Putting an image in:**
+
+- **Drop or paste** (Edit mode): a dropped image -- or a pasted one, a
+  screenshot or "Copy image" from anywhere -- goes into the text at the
+  cursor, on a line of its own. A placeholder (`![Uploading x.png…](uploading:1)`)
+  marks the spot at once and becomes `![caption](/files/<hash>)` when the
+  upload finishes, without moving the cursor if you've typed on
+  meanwhile; if it fails, the placeholder goes. The caption starts as the
+  file's name without its extension, dashes and underscores as spaces;
+  pasted images are named by when (`pasted-2026-10-06-1432.png`) and
+  captioned "figure". Files that aren't images are only attached.
+  Dropped onto the cursor, not the pointer: a textarea can't say which
+  character the pointer is over.
+- **Insert** (Edit mode, each attachment) puts the file at the cursor:
+  an image as `![…](…)`, anything else as a link.
+- **Copy** (everywhere attachments are listed) puts the same text on the
+  clipboard, to paste into any note. Over plain `http` on the network the
+  browser's Clipboard API isn't available, so the older copy command is
+  used.
 
 ## 10. Graph views
 
@@ -1261,8 +1324,8 @@ overlooked:
 - **Related-notes-by-shared-label.** Considered, rejected: redundant
   with the label filter, and would add a second, weaker-signal
   discovery mechanism next to backlinks (a strong, explicit signal).
-- **Inline image markdown.** Attachments are metadata, not embedded
-  content (§9.3).
+- **Images from other sites.** Only the app's own stored files show as
+  images (§9.5).
 - **An "attach an existing file" search/picker UI.** Removed after
   initial build — hash-based dedup on upload already provides reuse
   without needing a picker, and a search box across what's expected to

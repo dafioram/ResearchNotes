@@ -45,7 +45,9 @@ Supported standard Markdown subset:
 
 Raw HTML is never passed through -- everything is escaped first, so the
 supported syntax above is genuinely the entire vocabulary available.
-No image syntax is supported by design; attachments are a separate feature.
+Images (spec §9.5): ![caption](/files/<hash>) shows an attached image --
+the first 12 or more characters of a stored file's hash; nothing from
+other sites. Alone on its line it's a figure, the caption below it.
 Math is passed to the browser as escaped TeX for KaTeX (trust off, so no
 \\href or \\html... commands) -- the server never renders it.
 """
@@ -89,6 +91,11 @@ LABEL_RE = re.compile(r"(?:(?<!\S)|(?<=\|))" + _LABEL_BODY)
 NOTE_REF_RE = re.compile(r"\[\[(\d+)\]\]")
 # [[later]] / [[later: a hint]] -- a link to fill in later (spec §6.2).
 LATER_RE = re.compile(r"\[\[\s*later\s*(?::\s*([^\[\]\n]*?)\s*)?\]\]", re.IGNORECASE)
+# An image (spec §9.5): one of this app's stored files, by the first 12 or
+# more characters of its hash -- never an address elsewhere.
+IMAGE_RE = re.compile(r"!\[([^\]\n]*)\]\(/files/([0-9a-fA-F]{12,64})\)")
+# Any link to a stored file, image or not: what a note refers to.
+_FILE_REF_RE = re.compile(r"\]\(/files/([0-9a-fA-F]{12,64})\)")
 
 _PLACEHOLDER_TMPL = "\x00{kind}{idx}\x00"
 _PLACEHOLDER_RE = re.compile(r"\x00([A-Z]+)(\d+)\x00")
@@ -102,6 +109,7 @@ class _Stash:
     items: dict = field(default_factory=dict)
     counter: int = 0
     labels: set = field(default_factory=set)  # every label rendered, lowercased
+    files: dict | None = None  # hash prefix -> stored file, for ![](/files/...) (render's `files`)
 
     def store(self, kind: str, value):
         key = _PLACEHOLDER_TMPL.format(kind=kind, idx=self.counter)
@@ -146,6 +154,14 @@ def extract_note_refs(body: str) -> set[int]:
     stash = _Stash()
     stripped = _strip_code(body, stash)
     return {int(m.group(1)) for m in NOTE_REF_RE.finditer(stripped)}
+
+
+def extract_file_refs(body: str) -> set[str]:
+    """The stored files a note points at -- ![...](/files/<hash>) or
+    [...](/files/<hash>), outside code and math -- as the (lowercased) hash
+    prefixes typed. Saving a note attaches them to it (spec §9.5)."""
+    stripped = _strip_code(body, _Stash())
+    return {m.group(1).lower() for m in _FILE_REF_RE.finditer(stripped)}
 
 
 def has_later(body: str) -> bool:
@@ -269,6 +285,31 @@ def _later_html(m: re.Match) -> str:
     return f'<span class="note-ref note-ref-later" title="{tip.replace(chr(34), "&quot;")}">{shown}</span>'
 
 
+def _image_html(m: re.Match, files, figure: bool = False) -> str:
+    """An image reference (on escaped text) as HTML. `files` maps hash
+    prefixes to stored files ({"hash", "filename", "image"}); None when
+    the caller didn't look them up (plain-text uses), which gives a plain
+    link. A stored image shows (a figure, captioned, when `figure`); any
+    other stored file is a link to it; a prefix that matches no file, or
+    more than one, is shown as typed, marked missing."""
+    alt, prefix = m.group(1), m.group(2).lower()
+    caption = html.unescape(alt).strip()
+    if files is None:
+        return f'<a class="file-link" href="/files/{prefix}">{alt or "file"}</a>'
+    found = files.get(prefix)
+    if not found:
+        why = "No stored file starts with" if found is None else "More than one stored file starts with"
+        return f'<span class="file-missing" title="{why} {prefix}">{m.group(0)}</span>'
+    url = f'/files/{found["hash"]}'
+    if not found["image"]:
+        return f'<a class="file-link" href="{url}">{alt or html.escape(found["filename"])}</a>'
+    img = (f'<a class="figure-link" href="{url}"><img src="{url}" '
+           f'alt="{html.escape(caption, quote=True)}" loading="lazy"></a>')
+    if figure:
+        return f"<figure>{img}" + (f"<figcaption>{alt}</figcaption>" if caption else "") + "</figure>"
+    return img
+
+
 def _render_inline(text: str, stash: _Stash, existing_ids) -> str:
     """Render inline markdown (bold/italic/strike/links/labels/note-refs)
     on text that has ALREADY been HTML-escaped and had code spans stashed.
@@ -280,6 +321,9 @@ def _render_inline(text: str, stash: _Stash, existing_ids) -> str:
 
     # First, so a hint is shown as typed: [[later: https://...]] isn't a link.
     text = LATER_RE.sub(lambda m: stash.store("REF", _later_html(m)), text)
+
+    # Before links, which would otherwise take the "[caption](...)" part.
+    text = IMAGE_RE.sub(lambda m: stash.store("LINK", _image_html(m, stash.files)), text)
 
     def _link(m: re.Match) -> str:
         label, url = m.group(1), m.group(2)
@@ -506,7 +550,21 @@ def _render_lines(lines: list[str], stash: _Stash, existing_ids) -> list[str]:
         while i < n and not BLANK_RE.match(lines[i]) and not _starts_block(lines, i):
             buf.append(lines[i])
             i += 1
-        out.append("<p>" + "<br>".join(inline(b) for b in buf) + "</p>")
+        # A line that's just an image is a figure, its caption below it;
+        # the lines around it stay paragraphs.
+        para: list[str] = []
+        for b in buf:
+            m = IMAGE_RE.fullmatch(b.strip())
+            found = (stash.files or {}).get(m.group(2).lower()) if m else None
+            if found and found["image"]:
+                if para:
+                    out.append("<p>" + "<br>".join(inline(x) for x in para) + "</p>")
+                    para = []
+                out.append(stash.store("LINK", _image_html(m, stash.files, figure=True)))
+            else:
+                para.append(b)
+        if para:
+            out.append("<p>" + "<br>".join(inline(x) for x in para) + "</p>")
 
     return out
 
@@ -518,41 +576,45 @@ def _escape_text(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;")
 
 
-def render(body: str, existing_ids=None) -> str:
+def render(body: str, existing_ids=None, files=None) -> str:
     """Render a full note body to HTML. `existing_ids`: the referenced
     notes that exist, as a set, or a dict of id -> title to show each
-    [[ref]] by its note's title (db.note_titles)."""
-    blocks, stash = _render_body(body, existing_ids or set())
+    [[ref]] by its note's title (db.note_titles). `files`: the stored files
+    its images point at, by hash prefix (db.files_by_prefix); without it,
+    images are plain links."""
+    blocks, stash = _render_body(body, existing_ids or set(), files)
     return _resolve_placeholders("\n".join(blocks), stash)
 
 
-def _render_body(body: str, existing_ids):
+def _render_body(body: str, existing_ids, files=None):
     """The block-level HTML (placeholders unresolved) and the stash, which
     holds what was set aside and every label shown."""
-    stash = _Stash()
+    stash = _Stash(files=files)
     stripped = _strip_code(body, stash)
     escaped = _escape_text(stripped)
     # Placeholder tokens contain no '&' or '<' so they pass through intact.
     return _render_lines(escaped.split("\n"), stash, existing_ids), stash
 
 
-def render_first_line(body: str, existing_ids=None) -> str:
+def render_first_line(body: str, existing_ids=None, files=None) -> str:
     """Render just the first non-blank line of a note, for feed snippets."""
     for line in body.splitlines():
         if line.strip():
-            return render(line, existing_ids)
+            return render(line, existing_ids, files)
     return ""
 
 
 _TAG_RE = re.compile(r"<[^>]+>")
-_BLOCK_TAG_RE = re.compile(r"</?(?:p|h[1-6]|li|ul|ol|blockquote|pre|br|hr|table|thead|tbody|tr|th|td)\b[^>]*>")
+_BLOCK_TAG_RE = re.compile(r"</?(?:p|h[1-6]|li|ul|ol|blockquote|pre|br|hr|table|thead|tbody|tr|th|td|figure)\b[^>]*>")
 
 
 def _to_plain(rendered_html: str) -> str:
     """Rendered HTML -> plain text on one line. Block tags become a space
     (so separate blocks don't run together); inline tags (<strong>,
     <code>, <a> ...) vanish without adding space before punctuation."""
-    text = _BLOCK_TAG_RE.sub(" ", rendered_html)
+    text = re.sub(r"<figcaption>.*?</figcaption>", "", rendered_html)   # the image's alt says it
+    text = re.sub(r'<img [^>]*alt="([^"]*)"[^>]*>', r"\1", text)
+    text = _BLOCK_TAG_RE.sub(" ", text)
     text = _TAG_RE.sub("", text)
     return re.sub(r"\s+", " ", html.unescape(text)).strip()
 

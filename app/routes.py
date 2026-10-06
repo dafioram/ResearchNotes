@@ -3,6 +3,7 @@ import hashlib
 import math
 import mimetypes
 import os
+import re
 from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import quote_plus
@@ -42,8 +43,14 @@ def _valid_date(value: str) -> bool:
         return False
 
 
+def _render_note(body):
+    """A note's text as HTML, its [[refs]] by title and its images shown
+    -- each looked up for this note only."""
+    return md.render(body, db.note_titles(md.extract_note_refs(body)),
+                     db.files_by_prefix(md.extract_file_refs(body)))
+
+
 def _note_view_model(row):
-    ref_titles = db.note_titles(md.extract_note_refs(row["body"]))
     return {
         "id": row["id"],
         "body": row["body"],
@@ -51,7 +58,7 @@ def _note_view_model(row):
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "line_count": md.line_count(row["body"]),
-        "html": md.render(row["body"], ref_titles),
+        "html": _render_note(row["body"]),
     }
 
 
@@ -650,7 +657,7 @@ def note_version(note_id, version_id):
         "version.html",
         note_id=note_id,
         version=item,
-        html=md.render(version["body"], db.note_titles(md.extract_note_refs(version["body"]))),
+        html=_render_note(version["body"]),
         diff=_diff_lines(version["body"], row["body"]),
         date_changed=version["sort_date"] != row["sort_date"],
         current_date=row["sort_date"],
@@ -726,9 +733,11 @@ def _wants_json() -> bool:
     return request.headers.get("X-Requested-With") == "fetch"
 
 
-def _attachment_result(note_id: int, message: str, ok: bool = True, status: int = 200):
+def _attachment_result(note_id: int, message: str, ok: bool = True, status: int = 200, file=None):
     """Finish an upload/remove: JSON with the refreshed attachment list for
-    in-place requests, or flash + redirect for a plain form submit."""
+    in-place requests, or flash + redirect for a plain form submit. After
+    an upload, `file` (the stored file) goes back too, so the editor can
+    put an image into the text: its short hash, name, and whether it's one."""
     if _wants_json():
         attachments = db.list_note_attachments(note_id)
         html = render_template("_attachments_edit.html", note_id=note_id, attachments=attachments)
@@ -741,7 +750,9 @@ def _attachment_result(note_id: int, message: str, ok: bool = True, status: int 
             attachments=attachments,
             backlinks=_backlink_items(note_id),
         ) if row is not None else None
-        return jsonify(ok=ok, message=message, html=html, view_html=view_html), status
+        info = {"ref": file["hash"][:SHORT_HASH], "filename": file["filename"],
+                "image": file["mime_type"] in db.IMAGE_TYPES} if file is not None else None
+        return jsonify(ok=ok, message=message, html=html, view_html=view_html, file=info), status
     flash(message)
     return redirect(url_for("notes.edit_note_form", note_id=note_id))
 
@@ -767,7 +778,7 @@ def upload_attachment(note_id):
         display_name = existing["filename"]
         already_here = any(a["id"] == attachment_id for a in db.list_note_attachments(note_id))
         if already_here:
-            return _attachment_result(note_id, f"{display_name} is already attached.")
+            return _attachment_result(note_id, f"{display_name} is already attached.", file=existing)
     else:
         mime_type = file.mimetype or mimetypes.guess_type(filename)[0] or "application/octet-stream"
         disk_path = db.attachment_path(file_hash, extension)
@@ -780,7 +791,7 @@ def upload_attachment(note_id):
         display_name = filename
 
     db.link_attachment(note_id, attachment_id)
-    return _attachment_result(note_id, f"Attached {display_name}.")
+    return _attachment_result(note_id, f"Attached {display_name}.", file=db.get_attachment(attachment_id))
 
 
 @bp.route("/notes/<int:note_id>/attachments/<int:attachment_id>/remove", methods=["POST"])
@@ -794,10 +805,26 @@ def remove_attachment(note_id, attachment_id):
 # File types a browser shows without running anything in them. Everything
 # else -- HTML and SVG above all, which can carry scripts -- downloads
 # rather than opening as a page of this app (spec §9.3, §14).
-_INLINE_TYPES = frozenset({
-    "image/png", "image/jpeg", "image/gif", "image/webp", "image/avif", "image/bmp",
-    "application/pdf", "text/plain",
-})
+_INLINE_TYPES = db.IMAGE_TYPES | {"application/pdf", "text/plain"}
+
+@bp.app_template_global()
+def file_ref(attachment) -> str:
+    """The text that puts a stored file into a note (spec §9.5): an image
+    as ![caption](/files/<short hash>), the caption from its file name;
+    any other file as a link, [name](/files/<short hash>)."""
+    url = f"/files/{attachment['hash'][:SHORT_HASH]}"
+    name = re.sub(r"[\[\]\n]", "", attachment["filename"])
+    if attachment["mime_type"] in db.IMAGE_TYPES:
+        caption = re.sub(r"[-_]+", " ", Path(name).stem).strip()
+        return f"![{caption}]({url})"
+    return f"[{name}]({url})"
+
+
+# How much of a file's hash a note's text uses for it: ![](/files/<12>).
+# 48 bits: two of a person's files sharing it is vanishingly unlikely, and
+# if they did the reference says so rather than showing the wrong one.
+SHORT_HASH = 12
+_HASH_RE = re.compile(r"[0-9a-f]{12,64}")
 
 
 def _opens_inline(mime_type: str) -> bool:
@@ -806,10 +833,15 @@ def _opens_inline(mime_type: str) -> bool:
 
 @bp.route("/files/<file_hash>")
 def serve_attachment(file_hash):
-    row = db.get_attachment_by_hash(file_hash)
-    if row is None:
+    """A stored file, by its hash or the first 12 or more characters of it
+    (what notes use, spec §9.5)."""
+    file_hash = file_hash.lower()
+    if not _HASH_RE.fullmatch(file_hash):
         abort(404)
-    disk_path = db.attachment_path(file_hash, row["extension"])
+    row = db.get_attachment_by_prefix(file_hash)
+    if not row:
+        abort(404)   # no such file, or the prefix names more than one
+    disk_path = db.attachment_path(row["hash"], row["extension"])
     if not disk_path.exists():
         abort(404)
     response = send_file(

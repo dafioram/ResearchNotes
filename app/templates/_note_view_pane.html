@@ -18,6 +18,8 @@
       <li class="attachment-row">
         <a href="{{ url_for('notes.serve_attachment', file_hash=a['hash']) }}" target="_blank" rel="noopener">{{ a['filename'] }}</a>
         <span class="size">{{ (a['size'] / 1024) | round(1) }} KB</span>
+        <button type="button" class="attachment-copy" data-copy="{{ file_ref(a) }}"
+                title="Copy {{ file_ref(a) }}, to paste into any note">Copy</button>
       </li>
     {% endfor %}
   </ul>

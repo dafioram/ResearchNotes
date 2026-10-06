@@ -20,17 +20,25 @@ MARKUP = st.lists(
     st.sampled_from(list("ab #*_~`[]()<>&\"'\n:/.-!|=\\")
                     + ["javascript:", "http://x.org", "[[", "]]", "[[later", "```", "<script>",
                        "onerror=", "é", "日", "\r\n", "\t", "#lab", "data:", "&lt;", "\x00", "1",
-                       "$", "$$", "\\$", "$x$", "|", "|---|", "\\|", "| a |\n|-|\n"]),
+                       "$", "$$", "\\$", "$x$", "|", "|---|", "\\|", "| a |\n|-|\n",
+                       "![a](/files/191ff6f6b235)", "![", "](/files/", "4372a0cb0d86)"]),
     max_size=60,
 ).map("".join)
 SAFE_TAGS = {"p", "br", "h1", "h2", "h3", "h4", "h5", "h6", "strong", "em", "del", "code", "pre",
-             "ul", "ol", "li", "blockquote", "hr", "a", "span", "table", "thead", "tbody", "tr", "th", "td"}
+             "ul", "ol", "li", "blockquote", "hr", "a", "span", "table", "thead", "tbody", "tr", "th", "td",
+             "img", "figure", "figcaption"}
+# Stored files the renderer may show (an image, another file, an ambiguous prefix).
+FILES = {
+    "191ff6f6b235": {"hash": "191ff6f6b235" + "a" * 52, "filename": 'map"<x>.png', "image": True},
+    "4372a0cb0d86": {"hash": "4372a0cb0d86" + "b" * 52, "filename": "one<b>.pdf", "image": False},
+    "aaaaaaaaaaaa": False,
+}
 
 
 class _Tags(html.parser.HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
-        self.tags, self.labels, self.hrefs = [], [], []
+        self.tags, self.labels, self.hrefs, self.srcs = [], [], [], []
 
     def handle_starttag(self, tag, attrs):
         attrs = dict(attrs)
@@ -39,20 +47,25 @@ class _Tags(html.parser.HTMLParser):
             self.labels.append(attrs["href"])
         if "href" in attrs:
             self.hrefs.append(attrs["href"])
+        if "src" in attrs:
+            self.srcs.append(attrs["src"])
 
 
 @settings(max_examples=600, deadline=None)
 @given(MARKUP)
 def test_rendering_never_emits_unsafe_html(text):
-    out = md.render(text, {1: "One <b>", 2: ""})
-    parser = _Tags()
-    parser.feed(out)
-    for tag, attrs in parser.tags:
-        assert tag in SAFE_TAGS, (text, tag)
-        assert set(attrs) <= {"href", "class", "title", "rel", "data-id"}, (text, attrs)
-    for href in parser.hrefs:
-        assert md.safe_href(href) is not None, (text, href)   # never javascript:, data:, ...
-    assert "<script" not in out.lower()
+    for files in (None, FILES):
+        out = md.render(text, {1: "One <b>", 2: ""}, files)
+        parser = _Tags()
+        parser.feed(out)
+        for tag, attrs in parser.tags:
+            assert tag in SAFE_TAGS, (text, tag)
+            assert set(attrs) <= {"href", "class", "title", "rel", "data-id", "src", "alt", "loading"}, (text, attrs)
+        for href in parser.hrefs:
+            assert md.safe_href(href) is not None, (text, href)   # never javascript:, data:, ...
+        for src in parser.srcs:                                    # images: only this app's stored files
+            assert re.fullmatch(r"/files/[0-9a-f]{64}", src), (text, src)
+        assert "<script" not in out.lower()
 
 
 @settings(max_examples=600, deadline=None)

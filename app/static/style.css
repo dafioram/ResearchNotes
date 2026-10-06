@@ -558,6 +558,20 @@ a:hover { color: var(--ink); }
   color: inherit;
 }
 
+/* Images (spec §9.5): never wider than the note; alone on a line, a
+   figure with its caption below. Click one to open the full-size file. */
+.note-body img { max-width: 100%; height: auto; vertical-align: middle; }
+.note-body figure { margin: 1em 0; }
+.note-body figure img { display: block; border: 1px solid var(--rule-soft); }
+.note-body figcaption { margin-top: 6px; font-size: 0.9em; color: var(--ink-soft); }
+.note-body .figure-link { text-decoration: none; border: none; }
+.note-body .file-missing {
+  color: var(--danger);
+  font-family: var(--mono);
+  font-size: 0.87em;
+  border-bottom: 1px dashed var(--danger);
+}
+
 /* Tables (spec §5.2): a wide one scrolls sideways within the note. */
 .note-table {
   display: block;
@@ -928,6 +942,11 @@ kbd {
   padding: 3px 7px;
 }
 .attachment-row button:hover { border-color: var(--danger); background: var(--danger-bg); }
+.attachment-row .size { margin-left: auto; }
+.attachment-row .attachment-insert,
+.attachment-row .attachment-copy { color: var(--accent); }
+.attachment-row .attachment-insert:hover,
+.attachment-row .attachment-copy:hover { border-color: var(--accent-soft); background: var(--paper); }
 
 /* ---- graph ---------------------------------------------------------- */
 
