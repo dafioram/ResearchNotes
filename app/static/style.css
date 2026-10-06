@@ -1241,3 +1241,9 @@ a.history-note:hover { color: var(--accent); text-decoration: underline; text-un
 }
 .drop-overlay.refuse { background: rgba(168, 59, 45, 0.08); }
 .drop-overlay.refuse .drop-overlay-box { border-color: var(--danger); }
+
+/* ---- math (KaTeX, spec §5) ------------------------------------------ */
+
+.math-display { display: block; overflow-x: auto; overflow-y: hidden; }
+.math-display .katex-display { margin: 0.6em 0; }
+.math .katex { font-size: 1.05em; }

@@ -5,6 +5,7 @@
   <title>{% block title %}Research Notes{% endblock %}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='vendor/katex-0.19.0/katex.min.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body class="{% block body_class %}{% endblock %}">
@@ -52,6 +53,9 @@
       </main>
     </div>
   </div>
+  {# Math in notes (spec §5): KaTeX, bundled locally (MIT) so it works offline. #}
+  <script src="{{ url_for('static', filename='vendor/katex-0.19.0/katex.min.js') }}"></script>
+  <script src="{{ url_for('static', filename='math.js') }}"></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

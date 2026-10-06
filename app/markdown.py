@@ -15,6 +15,10 @@ enough syntax for note-taking, plus two note-specific extensions:
                         title when the caller passes titles -- otherwise as
                         a "ghost" reference so broken links are visible at
                         a glance.
+    $x^2$           -> math (TeX), drawn by KaTeX in the browser: $...$
+    $$...$$             inline, $$...$$ a display block (may span lines).
+                        Prices stay text: "$5 and $10" isn't math (spec
+                        §5.1). \\$ is a literal dollar sign.
     [[later]]       -> a link to fill in later, optionally with a hint:
     [[later: hint]]     [[later: Bjork 1994]]. Any capitalization. Shown as
                         a placeholder; it links nowhere, so it makes no
@@ -39,6 +43,8 @@ Supported standard Markdown subset:
 Raw HTML is never passed through -- everything is escaped first, so the
 supported syntax above is genuinely the entire vocabulary available.
 No image syntax is supported by design; attachments are a separate feature.
+Math is passed to the browser as escaped TeX for KaTeX (trust off, so no
+\\href or \\html... commands) -- the server never renders it.
 """
 
 from __future__ import annotations
@@ -56,6 +62,14 @@ from markupsafe import Markup, escape
 
 CODE_BLOCK_RE = re.compile(r"```([a-zA-Z0-9_+-]*)\n?(.*?)```", re.DOTALL)
 INLINE_CODE_RE = re.compile(r"`([^`\n]+)`")
+# Math (spec §5.1): $$display$$ (may span lines), then $inline$ -- pandoc's
+# rules, so prices aren't math: no space just inside the dollars, and the
+# closing one not followed by a digit ("$5 and $10" stays text), and the
+# opening one not straight after a letter or digit (an address with "$" in
+# it isn't math). \$ is a plain dollar sign. Never across a stashed code
+# placeholder (\x00).
+MATH_BLOCK_RE = re.compile(r"(?<!\\)\$\$(?=[^$])((?:(?!\$\$)[^\x00])*?\S(?:(?!\$\$)[^\x00])*?)\$\$")
+MATH_INLINE_RE = re.compile(r"(?<![\w\\$])\$(?=[^\s$])([^$\n\x00]*?[^\s\\$])\$(?![\d$])")
 
 # A label (spec §6.1): '#' at the start of a line or after whitespace --
 # so URL fragments (page#part), C# and foo#bar aren't labels -- then a
@@ -96,9 +110,10 @@ class _Stash:
 
 
 def _strip_code(text: str, stash: _Stash) -> str:
-    """Pull fenced code blocks and inline code spans out into the stash,
-    replacing them with placeholder tokens. Must run on RAW text so that
-    labels/refs typed inside code are never extracted or linkified."""
+    """Pull fenced code blocks, inline code spans and math out into the
+    stash, replacing them with placeholder tokens. Must run on RAW text so
+    that labels/refs typed inside code or math are never extracted or
+    linkified. Math is stored as typed, dollars and all."""
 
     def _block(m: re.Match) -> str:
         lang, code = m.group(1), m.group(2)
@@ -110,6 +125,8 @@ def _strip_code(text: str, stash: _Stash) -> str:
         return stash.store("CODESPAN", m.group(1))
 
     text = INLINE_CODE_RE.sub(_span, text)
+    text = MATH_BLOCK_RE.sub(lambda m: stash.store("MATHBLOCK", m.group(0)), text)
+    text = MATH_INLINE_RE.sub(lambda m: stash.store("MATHSPAN", m.group(0)), text)
     return text
 
 
@@ -257,6 +274,8 @@ def _render_inline(text: str, stash: _Stash, existing_ids) -> str:
     can't reach into a URL, a ref or a label. `existing_ids` holds the
     referenced notes that exist: a set, or a dict of id -> title."""
 
+    text = text.replace("\\$", "$")  # an escaped dollar sign (math is stashed already)
+
     # First, so a hint is shown as typed: [[later: https://...]] isn't a link.
     text = LATER_RE.sub(lambda m: stash.store("REF", _later_html(m)), text)
 
@@ -306,6 +325,11 @@ def _resolve_placeholders(text: str, stash: _Stash) -> str:
         value = stash.items.get(key)
         if value is None:
             return key
+        if key.startswith("\x00MATH"):
+            # The TeX as typed, for KaTeX to render in the browser (and to
+            # read as-is without it, or as plain text).
+            kind = "display" if key.startswith("\x00MATHBLOCK") else "inline"
+            return f'<span class="math math-{kind}">{html.escape(value, quote=False)}</span>'
         if isinstance(value, tuple):  # CODEBLOCK -> (lang, code)
             lang, code = value
             lang_class = f' class="language-{html.escape(lang)}"' if lang else ""
@@ -512,6 +536,8 @@ def _restore_code_source(text: str, stash: _Stash) -> str:
         value = stash.items.get(m.group(0))
         if value is None:
             return m.group(0)
+        if m.group(0).startswith("\x00MATH"):
+            return value  # stored as typed
         if isinstance(value, tuple):
             lang, code = value
             return f"```{lang}\n{code}```"
