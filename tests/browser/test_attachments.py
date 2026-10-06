@@ -49,10 +49,16 @@ def test_dropping_in_view_explains_instead_of_attaching(page, live):
     assert live.run(lambda: dbmod.list_note_attachments(note)) == []
 
 
-def test_a_new_note_must_be_saved_before_files(page, live):
+def test_dropping_on_a_new_note_saves_it_then_attaches(page, live):
     page.goto("/notes/new")
+    page.locator("#body").type("# Fresh")
     _drop(page, [("x.txt", "x")], events=("dragenter",))
-    expect(page.locator(".drop-overlay")).to_contain_text("Save the note first")
+    expect(page.locator(".drop-overlay")).to_contain_text("Drop to save the note and attach")
+    _drop(page, [("x.txt", "x")], events=("drop",))
+    expect(page.locator("#attachment-status")).to_have_text("Attached x.txt.")
+    [note] = live.note_ids()
+    assert live.body(note) == "# Fresh"
+    assert [a["filename"] for a in live.run(lambda: dbmod.list_note_attachments(note))] == ["x.txt"]
 
 
 def test_remove_happens_in_place(page, live):
@@ -62,7 +68,7 @@ def test_remove_happens_in_place(page, live):
     expect(page.locator("#attachments-panel .attachment-list")).to_contain_text("gone.txt")
     page.locator("#body").press("Control+End")
     page.locator("#body").type(" typing")
-    page.locator("#attachments-panel .attachment-row button").click()
+    page.locator("#attachments-panel form[data-attachment-remove] button").click()
     expect(page.locator("#attachment-status")).to_contain_text("Removed gone.txt")
     expect(page.locator("#attachments-panel .attachment-list")).to_have_count(0)
     expect(page.locator("#body")).to_have_value("# Has a file typing")

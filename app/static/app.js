@@ -1,7 +1,8 @@
 /*
  * The note page (note.html): View / Edit switch, saving in place, Done and
  * Cancel, the unsaved-changes guard, suggestions for [[links and
- * #labels while typing, pasted cells made into tables, and attachments.
+ * #labels while typing, pasted cells made into tables, and attachments --
+ * dropped or pasted images going into the text at the cursor.
  *
  * Saving never leaves the page. Save and Ctrl+S save and keep editing;
  * Done, and flipping the switch to View, save and then show View. On a
@@ -822,12 +823,51 @@
     // insertText keeps the editor's undo history; setRangeText is the fallback.
     if (!document.execCommand("insertText", false, text)) {
       textarea.setRangeText(text, textarea.selectionStart, textarea.selectionEnd, "end");
-      refreshStatus();
+      edited();
     }
+  }
+
+  // Put text at the cursor on a line of its own (an image, a table).
+  function insertOnOwnLine(text) {
+    textarea.focus();
+    var before = textarea.value.slice(0, textarea.selectionStart);
+    var after = textarea.value.slice(textarea.selectionEnd);
+    var lead = before === "" || /\n$/.test(before) ? "" : "\n";
+    var trail = /^\n/.test(after) ? "" : "\n";
+    insertText(lead + text + trail);
+  }
+
+  // Swap a stretch of the text for another without moving the cursor --
+  // an upload finishing while you type elsewhere.
+  function replaceRange(start, end, text) {
+    var selStart = textarea.selectionStart, selEnd = textarea.selectionEnd;
+    var delta = text.length - (end - start);
+    function moved(p) { return p >= end ? p + delta : p > start ? start + text.length : p; }
+    if (document.activeElement === textarea) {
+      textarea.setSelectionRange(start, end);
+      if (document.execCommand("insertText", false, text)) {   // undoable
+        textarea.setSelectionRange(moved(selStart), moved(selEnd));
+        return;
+      }
+    }
+    textarea.setRangeText(text, start, end, "preserve");
+    edited();
   }
 
   textarea.addEventListener("paste", function (e) {
     if (!e.clipboardData) return;
+    // A pasted image (a screenshot, "Copy image") is uploaded and put in
+    // the text at the cursor, like a dropped one (spec §9.5) -- but only
+    // when there's no text: spreadsheets copy cells as text *and* a
+    // picture of them, and the text (a table) is what's wanted.
+    var images = Array.prototype.filter.call(e.clipboardData.files || [], function (f) {
+      return /^image\//.test(f.type);
+    });
+    if (images.length && !e.clipboardData.getData("text/plain")) {
+      e.preventDefault();
+      attachFiles(images.map(pastedImage));
+      return;
+    }
     var text = e.clipboardData.getData("text/plain").replace(/\r\n?/g, "\n").replace(/\n+$/, "");
     var start = textarea.selectionStart, before = textarea.value.slice(0, start);
     if ((before.match(/```/g) || []).length % 2) return;   // inside a code block
@@ -890,19 +930,77 @@
       });
   }
 
-  // Upload dropped files one after another, then say how it went.
-  function uploadFiles(files) {
+  // ---- images in the text (spec §9.5) ----
+  // A dropped or pasted image goes into the text at the cursor, on a line
+  // of its own: first as a placeholder, then -- once uploaded and its hash
+  // known -- as ![caption](/files/<hash>). Other files are only attached.
+
+  var IMAGE_FILE = /^image\/(png|jpeg|gif|webp|avif|bmp)$/;
+  var uploadSeq = 0;
+
+  function isImage(file) { return IMAGE_FILE.test(file.type); }
+
+  // The caption a file starts with: its name, without the extension, with
+  // dashes and underscores as spaces. Pasted images are just "figure".
+  function captionFor(file) {
+    if (file.pasted) return "figure";
+    return file.name.replace(/\.[^.]*$/, "").replace(/[-_]+/g, " ").replace(/[\[\]\n]/g, "").trim();
+  }
+
+  // A clipboard image arrives as "image.png"; name it by when it was pasted.
+  function pastedImage(file) {
+    var d = new Date(), pad = function (n) { return (n < 10 ? "0" : "") + n; };
+    var ext = (file.type.split("/")[1] || "png").replace("jpeg", "jpg");
+    var named = new File([file], "pasted-" + d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" +
+      pad(d.getDate()) + "-" + pad(d.getHours()) + pad(d.getMinutes()) + "." + ext, { type: file.type });
+    named.pasted = true;
+    return named;
+  }
+
+  function replacePlaceholder(placeholder, text) {
+    var at = textarea.value.indexOf(placeholder);
+    if (at === -1) return;   // deleted meanwhile: the file is still attached
+    var end = at + placeholder.length;
+    if (!text && textarea.value.charAt(end) === "\n") end += 1;   // and its line
+    replaceRange(at, end, text);
+  }
+
+  // Attach files, putting images into the text. A new note is saved first.
+  function attachFiles(files) {
+    if (!files.length) return;
+    var placeholders = files.map(function (file) {
+      if (!isImage(file)) return null;
+      uploadSeq += 1;
+      return "![Uploading " + file.name.replace(/[\[\]\n]/g, "") + "…](uploading:" + uploadSeq + ")";
+    });
+    var shown = placeholders.filter(Boolean);
+    if (shown.length) insertOnOwnLine(shown.join("\n"));
+    var ready = state.noteId ? Promise.resolve() : save();
+    ready.then(
+      function () { uploadFiles(files, placeholders); },
+      function () {
+        placeholders.forEach(function (p) { if (p) replacePlaceholder(p, ""); });
+        attachmentStatus("Save the note first: it couldn’t be saved, so nothing was attached.", true);
+      }
+    );
+  }
+
+  // Upload files one after another, then say how it went.
+  function uploadFiles(files, placeholders) {
     var section = document.getElementById("attachments-section");
     if (!section || !files.length) return;
+    placeholders = placeholders || [];
     var url = section.getAttribute("data-upload-url");
     var maxBytes = +section.getAttribute("data-max-bytes") || 0;
     var attached = [], problems = [];
 
     var chain = Promise.resolve();
     files.forEach(function (file, i) {
+      var placeholder = placeholders[i];
       chain = chain.then(function () {
         if (maxBytes && file.size > maxBytes) {
           problems.push(file.name + " is over the " + formatMB(maxBytes) + " limit");
+          if (placeholder) replacePlaceholder(placeholder, "");
           return;
         }
         attachmentStatus("Uploading " + file.name +
@@ -910,10 +1008,17 @@
         var body = new FormData();
         body.append("file", file, file.name);
         return postAttachment(url, body, maxBytes).then(
-          function (data) { attached.push(data.message); },
+          function (data) {
+            attached.push(data.message);
+            if (placeholder) {
+              replacePlaceholder(placeholder, data.file && data.file.image
+                ? "![" + captionFor(file) + "](/files/" + data.file.ref + ")" : "");
+            }
+          },
           function (err) {
             var msg = err.message;
             problems.push(/^over the/.test(msg) ? file.name + " is " + msg : file.name + ": " + msg);
+            if (placeholder) replacePlaceholder(placeholder, "");
           }
         );
       });
@@ -927,6 +1032,14 @@
       attachmentStatus(parts.join(" "), problems.length > 0);
     });
   }
+
+  // Insert puts an attached file into the text at the cursor.
+  document.addEventListener("click", function (e) {
+    var button = e.target.closest("button[data-insert]");
+    if (!button || mode() !== "edit") return;
+    e.preventDefault();
+    insertOnOwnLine(button.getAttribute("data-insert"));
+  });
 
   // Remove buttons live inside the list, which is replaced after every change.
   document.addEventListener("submit", function (e) {
@@ -966,10 +1079,9 @@
     if (mode() !== "edit") {
       return { ok: false, title: "Switch to Edit to attach files", text: "Files are attached while editing a note." };
     }
-    if (!document.getElementById("attachments-section")) {
-      return { ok: false, title: "Save the note first", text: "Files can be attached once the note has been saved." };
-    }
-    return { ok: true, title: "Drop to attach to No. " + state.noteId, text: "Several files at once is fine." };
+    var text = "Images go into the text at the cursor; other files are attached.";
+    if (!state.noteId) return { ok: true, title: "Drop to save the note and attach", text: text };
+    return { ok: true, title: "Drop to attach to No. " + state.noteId, text: text };
   }
 
   var dragDepth = 0;
@@ -1013,6 +1125,6 @@
       return;
     }
     hideOverlay();
-    uploadFiles(Array.prototype.slice.call(e.dataTransfer.files));
+    attachFiles(Array.prototype.slice.call(e.dataTransfer.files));
   });
 })();

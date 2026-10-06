@@ -78,6 +78,8 @@ CALLS = {
     # now, so only All is held to this.
     "History": lambda ids: dbmod.activity_page("all", 50, 0),
     "versions": lambda ids: dbmod.note_versions(ids[10]),
+    "images by short hash": lambda ids: (dbmod.files_by_prefix(["191ff6f6b235", "0000000000000"]),
+                                         dbmod.get_attachment_by_prefix("191ff6f6b235")),
     "Trash": lambda ids: dbmod.deleted_notes_page(50, 0),
 }
 

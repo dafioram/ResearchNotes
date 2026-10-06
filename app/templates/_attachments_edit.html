@@ -10,6 +10,11 @@
     <li class="attachment-row">
       <a href="{{ url_for('notes.serve_attachment', file_hash=a['hash']) }}" target="_blank" rel="noopener">{{ a['filename'] }}</a>
       <span class="size">{{ (a['size'] / 1024) | round(1) }} KB</span>
+      {# Put it in the text: at the cursor here, or anywhere via the clipboard (spec §9.5). #}
+      <button type="button" class="attachment-insert" data-insert="{{ file_ref(a) }}"
+              title="Put {{ file_ref(a) }} in the text at the cursor">Insert</button>
+      <button type="button" class="attachment-copy" data-copy="{{ file_ref(a) }}"
+              title="Copy {{ file_ref(a) }}, to paste into any note">Copy</button>
       <form method="post" data-attachment-remove
             action="{{ url_for('notes.remove_attachment', note_id=note_id, attachment_id=a['id']) }}">
         <button type="submit">Remove</button>
