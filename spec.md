@@ -942,7 +942,14 @@ removed from its last note, or its last note is deleted permanently
 (§4). A note in Trash still counts as using its files, since restoring
 it brings them back. Only the files just unlinked are checked — never a
 sweep of every file — so an upload that has written its file but not
-linked it yet can't lose it. **`flask prune-files`** (§13) cleans up
+linked it yet can't lose it.
+
+**A file missing from disk** -- a data folder copied without all of
+`uploads/`, say -- breaks nothing: notes open as usual and keep listing
+it. An image whose file is gone shows "Missing image: <caption>" in red
+instead of a broken picture (§9.5); opening the file gives a 404 page
+naming it and where it was expected (`uploads/ab/cd/<hash><ext>`), so
+putting it back there brings it back. **`flask prune-files`** (§13) cleans up
 what earlier versions left: records no note links to, and files in
 `UPLOAD_DIR` with no record (an upload that failed half-way). (Files
 used to be kept forever, even when nothing used them.)
@@ -1073,7 +1080,8 @@ by hash: `![Gull Rock layout, v4](/files/191ff6f6b235)`.
   image, never wider than the note, linking to the full-size file. Any
   other stored file -- SVG included, which can carry scripts -- shows as
   a link to it. A prefix that names no stored file, or more than one, is
-  shown as typed, in red, saying which. `![…](https://…)` is not an image:
+  shown as typed, in red, saying which. A stored image whose file isn't
+  on disk shows "Missing image: <caption>" (§9.2). `![…](https://…)` is not an image:
   nothing is ever loaded from another site (offline it would break, and
   online it would tell that site what you read). Without a lookup
   (`md.render` called without `files`, e.g. feed card titles), an image

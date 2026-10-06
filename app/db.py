@@ -833,8 +833,10 @@ def get_attachment_by_prefix(prefix: str):
 
 def files_by_prefix(prefixes) -> dict:
     """For showing images (md.render's `files`): each hash prefix typed in
-    a note -> {"hash", "filename", "image"} for the one file it names, or
-    False if it names more than one. Prefixes naming no file are left out."""
+    a note -> {"hash", "filename", "image", "present"} for the one file it
+    names, or False if it names more than one. Prefixes naming no file are
+    left out. "present": whether its file is on disk -- a data folder
+    copied without all of uploads/ still opens, its images shown missing."""
     db = get_db()
     found = {}
     for prefix in prefixes:
@@ -843,7 +845,8 @@ def files_by_prefix(prefixes) -> dict:
             found[prefix] = False
         elif row is not None:
             found[prefix] = {"hash": row["hash"], "filename": row["filename"],
-                             "image": row["mime_type"] in IMAGE_TYPES}
+                             "image": row["mime_type"] in IMAGE_TYPES,
+                             "present": attachment_path(row["hash"], row["extension"]).exists()}
     return found
 
 

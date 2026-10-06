@@ -119,7 +119,8 @@ def test_a_prefix_naming_two_files_names_neither(app, client):
             dbmod.create_attachment("abcabcabcabc" + str(i) * 52, f"f{i}.png", ".png", "image/png", 1)
         assert dbmod.files_by_prefix(["abcabcabcabc", "abcabcabcabc0"]) == {
             "abcabcabcabc": False,
-            "abcabcabcabc0": {"hash": "abcabcabcabc" + "0" * 52, "filename": "f0.png", "image": True},
+            "abcabcabcabc0": {"hash": "abcabcabcabc" + "0" * 52, "filename": "f0.png", "image": True,
+                              "present": False},            # a record only: no file written
         }
     assert client.get("/files/abcabcabcabc").status_code == 404
 
@@ -166,3 +167,30 @@ def test_attachment_lists_offer_the_text_to_show_a_file(client, note):
     assert 'data-copy="[one_draft.pdf](/files/' in edit       # names are made safe on upload
     card = client.get(f"/notes/{note}/fragment").data.decode()       # a feed card, opened: Copy only
     assert f'data-copy="![gull rock layout v4](/files/{ref})"' in card and "data-insert" not in card
+
+
+# ---------------------------------------------------------------------
+# A data folder copied without all its files
+# ---------------------------------------------------------------------
+
+def test_an_image_whose_file_is_gone_says_missing_and_the_note_still_works(app, client, note):
+    data = _upload(client, note, name="chart.png")
+    _upload(client, note, b"%PDF-1", "paper.pdf")
+    with app.app_context():
+        dbmod.update_note(note, f"# A note\n\nbefore\n![Results, run 3](/files/{data['file']['ref']})\nafter", "2026-01-01")
+        for a in dbmod.list_note_attachments(note):
+            dbmod.attachment_path(a["hash"], a["extension"]).unlink()      # uploads/ not copied along
+    page = client.get(f"/notes/{note}")
+    assert page.status_code == 200
+    html = page.data.decode()
+    assert "Missing image: Results, run 3" in html and "<img" not in html
+    assert "before" in html and "after" in html
+    # The attachment list is unchanged; opening a missing file says why.
+    assert "paper.pdf" in html
+    with app.app_context():
+        pdf = next(a for a in dbmod.list_note_attachments(note) if a["filename"] == "paper.pdf")
+    r = client.get(f"/files/{pdf['hash'][:12]}")
+    assert r.status_code == 404
+    text = r.data.decode()
+    assert "paper.pdf is missing" in text and f"uploads/{pdf['hash'][:2]}/{pdf['hash'][2:4]}/" in text
+

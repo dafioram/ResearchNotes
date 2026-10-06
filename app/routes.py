@@ -843,7 +843,10 @@ def serve_attachment(file_hash):
         abort(404)   # no such file, or the prefix names more than one
     disk_path = db.attachment_path(row["hash"], row["extension"])
     if not disk_path.exists():
-        abort(404)
+        # Known, but not on disk -- e.g. a data folder copied without all
+        # of uploads/. The notes still work; this file just can't be had.
+        return render_template("missing_file.html", file=row,
+                               path=f"uploads/{row['hash'][:2]}/{row['hash'][2:4]}/{row['hash']}{row['extension']}"), 404
     response = send_file(
         disk_path,
         mimetype=row["mime_type"],

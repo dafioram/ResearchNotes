@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{#
+  A stored file whose bytes aren't on disk (spec §9.2): the record is
+  there, the file in the uploads folder isn't. Expects: file, path.
+#}
+{% block title %}File missing &middot; Research Notes{% endblock %}
+{% block content %}
+<div class="note-card missing-file">
+  <h1>{{ file['filename'] }} is missing</h1>
+  <p>This file is attached to notes here, but it isn't in the uploads folder,
+     so it can't be opened. The notes themselves are fine.</p>
+  <p class="hint">Expected at <code>{{ path }}</code> in the data folder. Putting the
+     file back there brings it back.</p>
+</div>
+{% endblock %}

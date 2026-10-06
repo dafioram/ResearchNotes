@@ -301,6 +301,12 @@ def _image_html(m: re.Match, files, figure: bool = False) -> str:
         why = "No stored file starts with" if found is None else "More than one stored file starts with"
         return f'<span class="file-missing" title="{why} {prefix}">{m.group(0)}</span>'
     url = f'/files/{found["hash"]}'
+    if found["image"] and not found.get("present", True):
+        # Stored, but its file isn't on disk (uploads/ not copied along):
+        # say so, rather than a broken picture.
+        name = html.escape(found["filename"], quote=True)
+        return (f'<span class="file-missing" title="{name} isn\'t in the uploads folder">'
+                f'Missing image: {alt or html.escape(found["filename"])}</span>')
     if not found["image"]:
         return f'<a class="file-link" href="{url}">{alt or html.escape(found["filename"])}</a>'
     img = (f'<a class="figure-link" href="{url}"><img src="{url}" '
@@ -556,7 +562,7 @@ def _render_lines(lines: list[str], stash: _Stash, existing_ids) -> list[str]:
         for b in buf:
             m = IMAGE_RE.fullmatch(b.strip())
             found = (stash.files or {}).get(m.group(2).lower()) if m else None
-            if found and found["image"]:
+            if found and found["image"] and found.get("present", True):
                 if para:
                     out.append("<p>" + "<br>".join(inline(x) for x in para) + "</p>")
                     para = []
