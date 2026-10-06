@@ -7,7 +7,9 @@
  * Done, and flipping the switch to View, save and then show View. On a
  * page that started as a new note, the first save creates the note and
  * the page carries on as that note; Done then returns to the feed, landing
- * on the new note.
+ * on the new note. Once a note exists it also saves itself a few seconds
+ * after typing stops, and until text is saved it's kept in this browser
+ * as a draft, offered back if the page is opened again (spec §4.3).
  */
 (function () {
   "use strict";
@@ -28,6 +30,9 @@
     savedDate: dateInput.value,
     saving: null,       // the in-flight save, so repeat presses don't double-save
     leaving: false,     // set when we navigate away on purpose
+    // The text when this stretch of editing began, for Cancel to go back to.
+    openedBody: textarea.value,
+    openedDate: dateInput.value,
   };
 
   // ------------------------------------------------------------------
@@ -43,6 +48,10 @@
   }
 
   function setMode(m) {
+    if (m === "edit" && mode() !== "edit") {
+      state.openedBody = textarea.value;
+      state.openedDate = dateInput.value;
+    }
     document.body.classList.toggle("mode-edit", m === "edit");
     document.body.classList.toggle("mode-view", m === "view");
     var radio = document.querySelector('.mode-switch input[value="' + m + '"]');
@@ -89,11 +98,18 @@
     else showStatus(lastSavedMessage, null);
   }
 
-  textarea.addEventListener("input", refreshStatus);
-  dateInput.addEventListener("input", refreshStatus);
-  dateInput.addEventListener("change", refreshStatus);
+  function edited() {
+    refreshStatus();
+    scheduleDraft();
+    scheduleAutosave();
+  }
+
+  textarea.addEventListener("input", edited);
+  dateInput.addEventListener("input", edited);
+  dateInput.addEventListener("change", edited);
 
   window.addEventListener("beforeunload", function (e) {
+    writeDraft();
     if (state.leaving || !isDirty()) return;
     e.preventDefault();
     e.returnValue = ""; // older browsers need this to show the prompt
@@ -129,13 +145,24 @@
         if (!data.ok) throw new Error(data.message || "The note wasn’t saved.");
         state.savedBody = sentBody;
         state.savedDate = sentDate;
-        if (!state.noteId) becomeSavedNote(data);
+        if (!state.noteId) {
+          becomeSavedNote(data);
+          dropDraft(null);
+          state.openedBody = sentBody;   // Cancel goes back to the first save
+          state.openedDate = sentDate;
+        }
         applySaved(data);
+        writeDraft();  // gone if everything's saved; the newer text if typing went on
         lastSavedMessage = "Saved " + data.saved_at;
         return data;
       })
       .then(
-        function (data) { state.saving = null; refreshStatus(); return data; },
+        function (data) {
+          state.saving = null;
+          refreshStatus();
+          if (isDirty()) scheduleAutosave();  // typed on while it was saving
+          return data;
+        },
         function (err) { state.saving = null; showStatus(err.message, "error"); throw err; }
       );
     return state.saving;
@@ -214,18 +241,161 @@
     });
   }
 
+  // Cancel undoes this stretch of editing: back to the text as it was when
+  // Edit was opened (for a new note, its first save) -- saving that back,
+  // since autosave may have saved some of the changes already.
   var cancelBtn = document.getElementById("cancel-btn");
   if (cancelBtn) {
     cancelBtn.addEventListener("click", function () {
-      if (isDirty() && !window.confirm("Discard unsaved changes?")) return;
-      textarea.value = state.savedBody;
-      dateInput.value = state.savedDate;
+      var changed = textarea.value !== state.openedBody || dateInput.value !== state.openedDate;
+      if (!state.noteId) {                               // never saved: nothing to keep
+        if (changed && !window.confirm("Discard this note?")) return;
+        dropDraft(null);
+        leaveTo("/");
+        return;
+      }
+      if (changed && !window.confirm("Undo your changes since you started editing?")) return;
+      clearTimeout(autosaveTimer);
+      textarea.value = state.openedBody;
+      dateInput.value = state.openedDate;
       refreshStatus();
-      if (!state.noteId) leaveTo("/");                  // never saved: nothing to show
-      else if (state.startedNew) leaveTo(state.feedUrl);
-      else setMode("view");
+      (isDirty() ? save() : Promise.resolve()).then(function () {
+        dropDraft(state.noteId);
+        if (state.startedNew) leaveTo(state.feedUrl);
+        else setMode("view");
+      }, function () {});
     });
   }
+
+  // ------------------------------------------------------------------
+  // Autosave: once a note exists, it saves itself a few seconds after
+  // typing stops. (A new note is created by its first Save, by hand, so
+  // stray keystrokes never create notes.) Saves that close together merge
+  // into one History entry and one version (§11.2).
+  // ------------------------------------------------------------------
+
+  var AUTOSAVE_DELAY = 3000;
+  var autosaveTimer = null;
+
+  function scheduleAutosave() {
+    clearTimeout(autosaveTimer);
+    if (!state.noteId) return;
+    autosaveTimer = setTimeout(function () {
+      // checkValidity, not reportValidity: no "please fill in" bubble
+      // popping up by itself; a cleared date waits for a manual save.
+      if (mode() !== "edit" || !isDirty() || !form.checkValidity()) return;
+      save().catch(function () {});
+    }, AUTOSAVE_DELAY);
+  }
+
+  // ------------------------------------------------------------------
+  // Drafts: until it's saved, what's typed is kept in this browser's
+  // storage, so a crash, a killed tab or a dead battery can't lose it.
+  // Opening the note (or New note) again offers it back. Drafts older
+  // than 30 days are dropped.
+  // ------------------------------------------------------------------
+
+  var DRAFT_PREFIX = "rn-draft:";
+  var DRAFT_MAX_AGE = 30 * 24 * 3600 * 1000;
+  var draftTimer = null;
+  var draftOffered = false;   // while one is offered, don't overwrite it
+
+  function draftKey(id) { return DRAFT_PREFIX + (id || "new"); }
+
+  function readDraft(id) {
+    try { return JSON.parse(window.localStorage.getItem(draftKey(id)) || "null"); }
+    catch (e) { return null; }
+  }
+
+  function dropDraft(id) {
+    try { window.localStorage.removeItem(draftKey(id)); } catch (e) { /* storage off */ }
+  }
+
+  function writeDraft() {
+    clearTimeout(draftTimer);
+    if (draftOffered) return;
+    if (!isDirty()) { dropDraft(state.noteId); return; }
+    try {
+      window.localStorage.setItem(draftKey(state.noteId), JSON.stringify({
+        body: textarea.value,
+        sort_date: dateInput.value,
+        base: state.savedBody,     // what was saved when it was written
+        at: Date.now(),
+      }));
+    } catch (e) { /* storage off or full: nothing more to do */ }
+  }
+
+  function scheduleDraft() {
+    clearTimeout(draftTimer);
+    draftTimer = setTimeout(writeDraft, 300);
+  }
+
+  function pruneDrafts() {
+    try {
+      var storage = window.localStorage, old = [];
+      for (var i = 0; i < storage.length; i++) {
+        var key = storage.key(i);
+        if (key.indexOf(DRAFT_PREFIX) !== 0) continue;
+        var d = JSON.parse(storage.getItem(key) || "null");
+        if (!d || Date.now() - d.at > DRAFT_MAX_AGE) old.push(key);
+      }
+      old.forEach(function (key) { storage.removeItem(key); });
+    } catch (e) { /* storage off */ }
+  }
+
+  function offerDraft() {
+    var d = readDraft(state.noteId);
+    if (!d || typeof d.body !== "string") return;
+    if (d.body === textarea.value && d.sort_date === dateInput.value) {
+      dropDraft(state.noteId);   // it was saved after all
+      return;
+    }
+    draftOffered = true;
+    var when = new Date(d.at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+    var banner = document.createElement("div");
+    banner.className = "draft-banner";
+    banner.setAttribute("role", "status");
+    var text = document.createElement("p");
+    text.textContent = (state.noteId
+        ? "Unsaved changes to this note from " + when + " were kept in this browser."
+        : "A new note you hadn’t saved, from " + when + ", was kept in this browser.") +
+      (state.noteId && d.base !== state.savedBody
+        ? " The note has been saved since; restoring replaces that text." : "");
+    var restore = document.createElement("button");
+    restore.type = "button";
+    restore.className = "btn";
+    restore.textContent = "Restore";
+    var discard = document.createElement("button");
+    discard.type = "button";
+    discard.className = "btn-quiet";
+    discard.textContent = "Discard";
+    banner.appendChild(text);
+    banner.appendChild(restore);
+    banner.appendChild(discard);
+    pageEl.parentNode.insertBefore(banner, pageEl);
+
+    restore.addEventListener("click", function () {
+      draftOffered = false;
+      banner.remove();
+      if (mode() !== "edit") setMode("edit");
+      textarea.value = d.body;
+      dateInput.value = d.sort_date || dateInput.value;
+      edited();
+    });
+    discard.addEventListener("click", function () {
+      draftOffered = false;
+      banner.remove();
+      writeDraft();   // keeps anything typed meanwhile, else drops the old draft
+    });
+  }
+
+  // A phone or tablet may never fire beforeunload; this comes first.
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "hidden") writeDraft();
+  });
+
+  pruneDrafts();
+  offerDraft();
 
   // Delete (form is swapped in after a new note's first save, so delegate).
   document.addEventListener("submit", function (e) {

@@ -737,6 +737,19 @@ a.btn, a.btn-quiet { display: inline-block; text-decoration: none; }
 }
 .btn-quiet:hover { border-color: var(--ink); color: var(--ink); }
 
+/* Unsaved text found in this browser, offered back (app.js drafts). */
+.draft-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  border: 1px solid var(--label-fg);
+  background: var(--label-bg);
+  padding: 10px 14px;
+  margin-bottom: 18px;
+}
+.draft-banner p { margin: 0; flex: 1 1 320px; }
+
 .shortcut-hint {
   font-family: var(--mono);
   font-size: 13px;
