@@ -683,9 +683,11 @@ Context rules:
   just the title.
 - A `[[id]]` inside inline code or a fenced code block isn't a link
   (same rule as extraction, §5), so it's never shown as a mention.
-- The highlighted mention, and any other `[[refs]]` in the passage or
-  the title line, show as their notes' titles (§6.2), so a row reads
-  "This result contradicts **Spacing effect** because of sampling".
+- The highlighted mention reads **this note**: the list sits under that
+  note, so its title would only repeat on every row. Any other `[[refs]]`
+  in the passage or the title line show as their notes' titles (§6.2),
+  so a row reads "This result contradicts **this note**, see Spacing
+  effect ⁴".
 
 Precedent for showing context rather than titles alone: Obsidian's
 backlinks pane shows the text around each mention (truncated, with a

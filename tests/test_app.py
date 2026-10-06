@@ -873,11 +873,25 @@ def test_backlink_rows_show_link_context(client, app):
         body = client.get(url).data.decode()
         assert "Citing note" in body  # title line still shown
         assert "This result contradicts " in body
-        # the mention of this note, by its title
-        assert (f'<mark class="backlink-ref"><span class="ref-title" title="No. {target}: Target">'
-                f'Target<span class="ref-no">{target}</span></span></mark>') in body
+        # the mention of this note: "this note", not its title again
+        assert '<mark class="backlink-ref">this note</mark>' in body
+        assert "ref-title" not in body
         assert " because of sampling." in body
         assert _NestedLinkChecker(body).nested == 0
+
+
+def test_other_refs_in_a_backlink_passage_show_as_titles(client, app):
+    with app.app_context():
+        target = dbmod.create_note("# Target", "2026-01-01")
+        other = dbmod.create_note("# Other <idea>", "2026-01-01")
+        dbmod.create_note(f"# See [[{other}]]\n\nBuilds on [[{target}]] and [[{other}]].", "2026-01-02")
+
+    body = client.get(f"/notes/{target}").data.decode()
+    shown = (f'<span class="ref-title" title="No. {other}: Other &lt;idea&gt;">'
+             f'Other &lt;idea&gt;<span class="ref-no">{other}</span></span>')
+    assert body.count(shown) == 2                       # in the title line and the passage
+    assert f'Builds on <mark class="backlink-ref">this note</mark> and {shown}.' in body
+    assert "No. %d: Target" % target not in body
 
 
 def test_backlink_row_caps_mentions_at_two(client, app):
