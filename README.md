@@ -34,6 +34,7 @@ in [spec.md](spec.md).
   | `-flashcards` | without that word (or `-"a phrase"`) |
   | `#learning #memory` | with either label (any of the labels typed) |
   | `+#draft` / `-#draft` | that must have / mustn't have the label |
+  | `#physics-*` | with `#physics` or any `#physics-...` label |
   | `is:unlinked` | with no `[[links]]` in or out |
   | `has:file` | with an attachment |
   | `has:later` | with a `[[later]]` link still to fill in |
@@ -88,10 +89,14 @@ in [spec.md](spec.md).
   link to the full list), and counted in a badge on every card. Each
   backlink shows the linking note's header plus the passage around the
   `[[link]]` itself, so you can see why it links here.
-- **Label list** in the feed's sidebar with usage counts; clicking a label
-  adds `#label` to the search (clicking it again takes it out). Several
-  labels show notes with any of them; `+#label` requires one, and labels
-  combine with anything typed. A label inside a note
+- **Labels** in the feed's sidebar as compact chips with counts, ordered
+  **Recent**, **Most used** or **A–Z** (your choice is remembered per
+  browser), the first 36 then *Show all*, with a filter box. Labels that
+  share a prefix -- `#physics-mechanics`, `#physics-quantum` -- collapse
+  into one `#physics-*` chip that opens in place. Clicking a label adds
+  `#label` to the search (clicking it again takes it out). Several labels
+  show notes with any of them; `+#label` requires one, and labels combine
+  with anything typed. A label inside a note
   links to the same search.
 - **Graph of a note** (rendered with Cytoscape.js, bundled so it works
   offline), full window width: the notes related to that note, out to

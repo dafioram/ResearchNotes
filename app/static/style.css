@@ -271,6 +271,83 @@ a:hover { color: var(--ink); }
 .label-row.active { background: var(--ink); border-color: var(--ink); color: var(--card); }
 .label-row.active .count { color: var(--rule-soft); }
 
+/* ---- the feed's label chips (labels.py, spec §6.4) ------------------ */
+
+.labels-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.label-order { font-size: 12px; white-space: nowrap; }
+.label-order a { color: var(--accent); text-decoration: none; }
+.label-order a:hover { text-decoration: underline; }
+.label-order strong { color: var(--ink); font-weight: 600; }
+.label-order > * + *::before { content: "· "; color: var(--ink-faint); font-weight: normal; }
+
+.label-filter {
+  width: 100%;
+  font-family: var(--mono);
+  font-size: 13px;
+  padding: 5px 7px;
+  border: 1px solid var(--rule);
+  background: var(--card);
+  color: var(--ink);
+  margin-bottom: 8px;
+}
+
+.label-chips { display: flex; flex-wrap: wrap; gap: 5px; }
+.label-chips.capped .over-cap,
+.label-chips .filtered-out { display: none !important; }
+
+.chip {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--label-fg);
+  background: var(--label-bg);
+  border: 1px solid var(--rule);
+  padding: 1px 6px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.chip .n { color: var(--ink-faint); font-size: 11px; margin-left: 4px; }
+.chip:hover { background: var(--ink); color: var(--card); border-color: var(--ink); }
+.chip:hover .n { color: var(--rule-soft); }
+.chip.active { background: var(--ink); color: var(--card); border-color: var(--ink); }
+.chip.active .n { color: var(--rule-soft); }
+
+/* a namespace: "#physics-*" plus a caret that opens its labels */
+.chip-group { display: inline-flex; }
+.chip.group { background: var(--card); border-style: dashed; border-color: var(--label-fg); }
+.chip-caret {
+  font-size: 11px;
+  color: var(--ink-soft);
+  background: var(--card);
+  border: 1px dashed var(--label-fg);
+  border-left: none;
+  padding: 0 5px;
+  cursor: pointer;
+}
+.chip-caret:hover { background: var(--ink); color: var(--card); }
+.chip-sub {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 5px 0 5px 10px;
+  margin: 1px 0 3px;
+  border-left: 2px solid var(--label-fg);
+}
+.chip-sub[hidden] { display: none; }
+
+.show-all {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--accent);
+  background: none;
+  border: none;
+  padding: 8px 0 0;
+  cursor: pointer;
+  text-decoration: underline;
+}
+.label-filter-count { font-family: var(--mono); font-size: 12px; color: var(--ink-faint); margin: 6px 0 0; }
+
 .filter-banner {
   font-family: var(--mono);
   font-size: 14px;

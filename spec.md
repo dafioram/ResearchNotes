@@ -189,9 +189,9 @@ note, Random, History, Trash (Graph is reached from a note).
   scrolls, and scrolls on its own if it's taller than the window). Its
   contents depend on the page:
   - Feed: Views (shortcuts that add `is:unlinked` / `has:file` /
-    `has:later` to the
-    search), the label list (§6.4), and a folded "Search tips" with the
-    syntax (§7).
+    `has:later` to the search), the label chips with their order switch
+    and filter box (§6.4), Jump to (a month), and a folded "Search tips"
+    with the syntax (§7).
   - Trash / History: the page name and what it lists.
   - A note's page: its number and the View / Edit switch; then in View
     its date and line count, in Edit the date picker, Save / Done /
@@ -545,25 +545,61 @@ once, from scratch (§13).
 
 ### 6.4 Label list & filtering
 
-The feed's sidebar lists every label currently in use, one per row with
-its usage count, most-used first. A label is a search term (§7):
-clicking one adds `#name` to the current search, and clicking it again
-(it's highlighted while it's in the search) takes it out. Labels
-together match **any** of them — clicking a second label widens the
-list: `#memory #learning` is notes with either (or both). `+#name`
-requires a label whatever else is there (`#memory +#draft`: memory
-notes that are drafts; `+#a +#b`: both), and `-#name` leaves it out.
-Labels then combine with words, dates and the other filters, which are
-all required. Old `/?label=name` links redirect to the same search.
-(Several labels used to mean all of them; any-of was asked for, and
-`+#` keeps the narrowing.)
+The feed's sidebar lists every label in use as **chips** packed several to
+a line (`app/labels.py`), each with its note count. One line per label —
+the original list — made 376 labels about 13,000 px tall.
+
+- **Namespaces.** Labels sharing the part before their first `-`
+  (`#physics-mechanics`, `#physics-quantum`) collapse into one dashed chip,
+  `#physics-*`, when two or more labels share it; a label that *is* the
+  prefix (`#physics`) joins its group, first. A lone `#long-term` stays
+  as it is. The group's count is notes with any of its labels, each note
+  once. Its caret (▸) opens the labels in place, shortened (`-quantum`);
+  clicking the group's name searches the whole namespace. One level only:
+  `#physics-quantum-field` sits under `#physics-*`.
+- **Order**: a switch above the chips — **Recent** (the default), **Most
+  used**, **A–Z** — kept in a cookie (`label_order`, via
+  `/labels/order/<order>?next=…`, which only ever redirects back into the
+  app), so the server lists labels in that order straight away; each
+  browser keeps its own. *Recent* is by when a note carrying the label
+  was last saved, read from the newest 1,000 saves in History (§11; its
+  time index makes that 1.6 ms at ten years — every label's exact last
+  use took 75 ms); labels not used in that stretch follow, by count. A
+  group sorts by its newest label, its count, or its prefix.
+- **Cap**: in Recent and Most used, the first 36 chips (a group counts as
+  one), then **Show all N labels** opens the rest in place. A–Z shows
+  everything — the point of choosing it.
+- **Labels in the current search come first**, highlighted, and a group
+  holding one is opened, so what's selected is never hidden by the cap.
+- **Filter box** (over 12 labels): narrows every chip as you type,
+  matching anywhere in the name (`phy` → `#physics-*` and its labels,
+  `#philosophy`, `#typography`), opening groups to show matching labels,
+  with "9 of 139 labels" below; clearing it restores the list as it was.
+
+A label is a search term (§7): clicking one adds `#name` to the current
+search, and clicking it again (it's highlighted while it's in the search)
+takes it out. Labels together match **any** of them — clicking a second
+label widens the list: `#memory #learning` is notes with either (or both).
+`#physics-*` is the namespace: `#physics` or any `#physics-…` label.
+`+#name` requires a label whatever else is there (`#memory +#draft`:
+memory notes that are drafts; `+#a +#b`: both; `+#physics-*`: some physics
+label), and `-#name` leaves it out (`-#physics-*`: no physics label at
+all). Labels then combine with words, dates and the other filters, which
+are all required. Old `/?label=name` links redirect to the same search.
+(Several labels used to mean all of them; any-of was asked for, and `+#`
+keeps the narrowing.)
 
 How they stay quick on a big collection (§4.2):
 
 - **Counts** are a plain count over the label index: notes in Trash have
   no label rows (§3), so there's nothing to check. On ten years of notes
   that's about 3 ms; checking each labelled note's row for Trash took
-  over 100, on every feed and note page.
+  over 100, on every feed and note page. Building the whole chip list —
+  counts, namespaces and their counts, recency — takes 4–6 ms with 375
+  labels; the feed page about 17 ms in all.
+- **A namespace** is one range on the label index: `#physics-*` is
+  `physics` plus every name from `physics-` up to `physics.` (`.` sorts
+  right after `-`).
 - **A label's page** — or a page of any of several labels, when that's
   all the search is — can be read two ways, and the quicker one depends
   on how common the labels are. Walking the feed in order and checking
@@ -659,6 +695,7 @@ feed's sidebar has the same list folded under "Search tips"):
 | `-flashcards`, `-"rote learning"` | without that word / phrase |
 | `#learning`, `#learning #memory` | carrying the label — or any of the labels typed (§6.4) |
 | `+#draft` | carrying the label, whatever else is there; several `+#`: all of them |
+| `#physics-*` | carrying `#physics` or any `#physics-…` label (a namespace, §6.4); `+#`/`-#` work too |
 | `-#draft` | not carrying the label |
 | `is:unlinked` | with no `[[links]]` in or out (§8) |
 | `has:file` (or `has:files`) | with at least one attachment (§9.4) |

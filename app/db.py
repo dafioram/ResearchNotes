@@ -194,18 +194,36 @@ def list_notes(label: str | None = None):
     return get_db().execute(f"SELECT n.* {from_where} {_FEED_ORDER}", params).fetchall()
 
 
+def _label_match(terms) -> tuple[str, list]:
+    """SQL matching note_labels.name against label terms (search.label_term):
+    exact names, and namespaces -- "physics-*" is physics itself and every
+    name from "physics-" up to (not including) "physics." ("." follows "-"),
+    so the label index finds them as one range."""
+    names = [t for t in terms if not t.endswith("-*")]
+    parts, params = [], []
+    if names:
+        parts.append(f"name IN ({_marks(names)})")
+        params.extend(names)
+    for term in terms:
+        if term.endswith("-*"):
+            prefix = term[:-2]
+            parts.append("(name = ? OR (name >= ? AND name < ?))")
+            params.extend([prefix, prefix + "-", prefix + "."])
+    return "(" + " OR ".join(parts) + ")", params
+
+
 def list_notes_page(labels, limit: int, offset: int):
     """A page of the feed, or of the notes carrying any of `labels` (a
-    name or a list of names; None for the whole feed). Returns (rows,
-    total)."""
+    label term or a list of them -- names, or "prefix-*" namespaces; None
+    for the whole feed). Returns (rows, total)."""
     if isinstance(labels, str):
         labels = [labels]
     if not labels:
         return _paged_notes("FROM notes n WHERE n.deleted_at IS NULL", (), limit, offset)
     db = get_db()
-    names = sorted({name.lower() for name in labels})
-    marks = _marks(names)
-    total = labels_note_count(names)
+    terms = sorted({term.lower() for term in labels})
+    match, params = _label_match(terms)
+    total = labels_note_count(terms)
     live = db.execute("SELECT COUNT(*) FROM notes WHERE deleted_at IS NULL").fetchone()[0]
     # The page can be read two ways, and which is quick depends on how
     # common the labels are. Walking the feed in order, checking each
@@ -216,11 +234,11 @@ def list_notes_page(labels, limit: int, offset: int):
     # note the labels have. (CROSS JOIN fixes the order SQLite joins in.)
     if (offset + limit) * live < 10 * total * total:
         sql = (f"SELECT n.* FROM notes n WHERE n.deleted_at IS NULL AND EXISTS "
-               f"(SELECT 1 FROM note_labels nl WHERE nl.note_id = n.id AND nl.name IN ({marks}))")
+               f"(SELECT 1 FROM note_labels WHERE note_id = n.id AND {match})")
     else:
-        sql = (f"SELECT n.* FROM (SELECT DISTINCT note_id FROM note_labels WHERE name IN ({marks})) nl "
+        sql = (f"SELECT n.* FROM (SELECT DISTINCT note_id FROM note_labels WHERE {match}) nl "
                f"CROSS JOIN notes n ON n.id = nl.note_id WHERE n.deleted_at IS NULL")
-    rows = db.execute(f"{sql} {_FEED_ORDER} LIMIT ? OFFSET ?", (*names, limit, offset)).fetchall()
+    rows = db.execute(f"{sql} {_FEED_ORDER} LIMIT ? OFFSET ?", (*params, limit, offset)).fetchall()
     return rows, total
 
 
@@ -259,16 +277,13 @@ def _search_parts(q):
     if q.exclude_words:
         where.append("n.id NOT IN (SELECT rowid FROM notes_fts WHERE notes_fts MATCH ?)")
         params.append(" OR ".join(q.exclude_words))
-    if q.labels:  # any of them
-        where.append(f"EXISTS (SELECT 1 FROM note_labels WHERE note_id = n.id "
-                     f"AND name IN ({_marks(q.labels)}))")
-        params.extend(q.labels)
-    for name in q.required_labels:  # each of them
-        where.append("EXISTS (SELECT 1 FROM note_labels WHERE note_id = n.id AND name = ?)")
-        params.append(name)
-    for name in q.exclude_labels:
-        where.append("NOT EXISTS (SELECT 1 FROM note_labels WHERE note_id = n.id AND name = ?)")
-        params.append(name)
+    for terms, exists in ([q.labels, "EXISTS"],  # any of them
+                          *[([t], "EXISTS") for t in q.required_labels],  # each of them
+                          *[([t], "NOT EXISTS") for t in q.exclude_labels]):
+        if terms:
+            match, match_params = _label_match(terms)
+            where.append(f"{exists} (SELECT 1 FROM note_labels WHERE note_id = n.id AND {match})")
+            params.extend(match_params)
     if q.unlinked:
         where.append(_UNLINKED)
     if q.has_file:
@@ -603,15 +618,35 @@ def get_labels_with_counts():
     ).fetchall()
 
 
-def labels_note_count(names) -> int:
-    """How many notes not in Trash carry any of the labels `names`
-    (lowercase; a note with several of them counts once)."""
-    names = list(names)
-    if len(names) == 1:
-        sql = "SELECT COUNT(*) FROM note_labels WHERE name = ?"
-    else:
-        sql = f"SELECT COUNT(DISTINCT note_id) FROM note_labels WHERE name IN ({_marks(names)})"
-    return get_db().execute(sql, names).fetchone()[0]
+def labels_note_count(terms) -> int:
+    """How many notes not in Trash carry any of the label terms (names, or
+    "prefix-*" namespaces; a note with several of them counts once)."""
+    terms = list(terms)
+    if len(terms) == 1 and not terms[0].endswith("-*"):
+        return get_db().execute("SELECT COUNT(*) FROM note_labels WHERE name = ?", terms).fetchone()[0]
+    match, params = _label_match(terms)
+    return get_db().execute(f"SELECT COUNT(DISTINCT note_id) FROM note_labels WHERE {match}", params).fetchone()[0]
+
+
+def label_recency(saves: int = 1000) -> dict[str, str]:
+    """label -> when a note carrying it was last saved, for the labels on
+    the notes of the last `saves` saves in History (spec §11) -- newest
+    first via its time index, so it never reads the whole log. Labels not
+    used in that stretch aren't included."""
+    rows = get_db().execute(
+        """
+        SELECT nl.name, MAX(a.t) FROM (
+            SELECT note_id, MAX(updated_at) AS t FROM (
+                SELECT note_id, updated_at FROM activity
+                WHERE kind IN ('created', 'edited')
+                ORDER BY updated_at DESC, id DESC LIMIT ?)
+            GROUP BY note_id) a
+        JOIN note_labels nl ON nl.note_id = a.note_id
+        GROUP BY nl.name
+        """,
+        (saves,),
+    ).fetchall()
+    return {name: t for name, t in rows}
 
 
 def get_backlinks(note_id: int):
