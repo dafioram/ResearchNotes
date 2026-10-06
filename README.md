@@ -91,8 +91,9 @@ in [spec.md](spec.md).
   links to the same search.
 - **Graph of a note** (rendered with Cytoscape.js, bundled so it works
   offline), full window width: the notes related to that note, out to
-  1–5 hops. Reached from the note's page only; there's no graph of
-  everything. Greyed out for a note with no links. Scroll to zoom, hover
+  1–3 hops and at most 300 notes (when there are more, it shows the
+  nearest and says how many it left out). Reached from the note's page
+  only; there's no graph of everything. Greyed out for a note with no links. Scroll to zoom, hover
   a node for its title. Notes referenced but not found appear as dashed
   ghost nodes; edges pointing at them are colored red.
 - **Views** in the feed's sidebar: *Unlinked notes* (`is:unlinked`, notes

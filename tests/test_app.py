@@ -967,13 +967,16 @@ def test_graph_library_is_bundled_not_from_a_cdn(client, app):
     assert client.get("/static/vendor/cytoscape-3.31.0.min.js").status_code == 200
 
 
-def test_hops_selector_offers_one_to_five(client, app):
+def test_hops_selector_offers_one_to_three(client, app):
     with app.app_context():
         a = dbmod.create_note("a", "2026-01-01")
         dbmod.create_note(f"b [[{a}]]", "2026-01-02")
     body = client.get(f"/graph/{a}").data.decode()
-    for h in range(1, 6):
+    for h in range(1, 4):
         assert f'<option value="{h}"' in body
+    assert '<option value="4"' not in body
+    # a bookmarked ?hops=5 still works, as 3
+    assert '<option value="3" selected>' in client.get(f"/graph/{a}?hops=5").data.decode()
 
 
 def test_no_phone_only_css():

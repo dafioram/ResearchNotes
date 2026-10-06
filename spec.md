@@ -875,11 +875,27 @@ Layout and legibility:
 - Hovering any node shows its full label in a tooltip, so notes can be
   identified from the overview without zooming.
 
-- **`/graph/<id>`** (default 1 hop, 1–5 selectable): centered on the
+- **`/graph/<id>`** (default 1 hop, 1–3 selectable): centered on the
   note, showing only notes within N hops via breadth-first traversal over
   the link adjacency (undirected for traversal purposes, since "is
   connected to" should surface both incoming and outgoing neighbors).
   "Back to note" returns to the note in View.
+- **At most 300 notes** (`db.GRAPH_MAX_NODES`). If the next ring of notes
+  would take the graph past that, only part of the ring is shown — the
+  notes with the most links to what's already drawn, then the lowest
+  numbers — and the walk stops there. The toolbar then says so:
+  "Showing the nearest 300 notes; 148 more at that distance (and any
+  beyond) aren't shown. Fewer hops shows a complete graph." A ring is
+  never dropped in favour of a farther one, so what's shown is always
+  the nearest part of the neighbourhood.
+- Why these limits: the layout's cost grows faster than the number of
+  notes. On ten years of notes, a hub note's graph was 52 notes at 1
+  hop, 448 at 2 and 2,973 at 3; the old 4- and 5-hop options drew 814
+  and 4,417 notes and froze the tab for 21 s and over 10 minutes.
+  Capped, the same hub's 2- and 3-hop graphs take about 3 s to lay out
+  in Chromium (a 200-note cap would be about 1.5 s), and a typical
+  note's 3-hop graph (149 notes) under 2 s. Old `?hops=4`/`5` addresses
+  show 3.
 - **Connected** means the note links out to anything — a missing or
   deleted target counts, since the graph shows it as a ghost — or a note
   that isn't in Trash links to it (`db.note_has_connections`). A note

@@ -16,11 +16,12 @@
       <label class="graph-hops">
         hops
         <select id="hops-select">
-          {% for h in range(1, 6) %}
+          {% for h in range(1, max_hops + 1) %}
             <option value="{{ h }}" {% if h == hops %}selected{% endif %}>{{ h }}</option>
           {% endfor %}
         </select>
       </label>
+      <span class="graph-capped" id="graph-capped" hidden></span>
       <span class="graph-hint">Scroll to zoom, drag to pan, hover for titles</span>
       <span class="graph-legend">
         <span><span class="legend-swatch legend-note"></span>note</span>

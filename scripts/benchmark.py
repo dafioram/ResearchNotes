@@ -189,6 +189,7 @@ def main() -> None:
             ("Trash", "get", "/trash", {}),
             ("Graph data, 1 hop", "get", f"/api/graph/{recent}?hops=1", {}),
             ("Graph data, 3 hops", "get", f"/api/graph/{recent}?hops=3", {}),
+            ("Graph data, hub note, 3 hops (capped)", "get", f"/api/graph/{hub}?hops=3", {}),
         ]
         print(f"\n{'Page':44s} {'median ms':>10s}")
         print(f"{'Startup (create_app)':44s} {startup_ms:10.1f}")

@@ -22,6 +22,15 @@
     .then(function (data) {
       var elements = [];
 
+      // Too many notes at this distance: say what's shown (db.get_graph_data).
+      var capped = document.getElementById("graph-capped");
+      if (capped && data.left_out) {
+        capped.textContent = "Showing the nearest " + data.nodes.length + " notes; " +
+          data.left_out + " more at that distance (and any beyond) aren’t shown." +
+          (hopsSelect && +hopsSelect.value > 1 ? " Fewer hops shows a complete graph." : "");
+        capped.hidden = false;
+      }
+
       data.nodes.forEach(function (n) {
         elements.push({
           data: { id: "n" + n.id, label: n.label, ghost: n.ghost, isCenter: n.id === centerId },

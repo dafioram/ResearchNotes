@@ -621,7 +621,13 @@ def _links_touching(db, note_ids) -> set[tuple[int, int]]:
     return links
 
 
-def get_graph_data(center_id: int, hops: int = 1):
+# A graph shows at most this many hops, and this many notes: past a few
+# hundred boxes the layout takes seconds and the picture is a hairball.
+GRAPH_MAX_HOPS = 3
+GRAPH_MAX_NODES = 300
+
+
+def get_graph_data(center_id: int, hops: int = 1, max_nodes: int = GRAPH_MAX_NODES):
     """The graph around one note: every note within `hops` links of it
     (following links in either direction), and the links among them.
     There is deliberately no whole-collection graph; a graph always
@@ -629,17 +635,33 @@ def get_graph_data(center_id: int, hops: int = 1):
 
     Works outward from the note one hop at a time, asking only for the
     links of the notes just reached, rather than loading every link in
-    the database."""
+    the database. If the next ring of notes would take the graph past
+    `max_nodes`, only part of it is shown -- the notes with the most links
+    to what's already there, then the lowest numbers -- and the walk stops;
+    `left_out` says how many of that ring were left out (more may lie
+    beyond it)."""
     db = get_db()
     visited = {center_id}
     frontier = {center_id}
     links: set[tuple[int, int]] = set()
+    left_out = 0
     for _ in range(max(hops, 0)):
         touching = _links_touching(db, frontier)
         links |= touching
-        frontier = {n for link in touching for n in link} - visited
+        ring = {n for link in touching for n in link} - visited
+        room = max_nodes - len(visited)
+        if len(ring) > room:
+            ties: dict[int, int] = {}
+            for a, b in touching:
+                for n, other in ((a, b), (b, a)):
+                    if n in ring and other in visited:
+                        ties[n] = ties.get(n, 0) + 1
+            kept = set(sorted(ring, key=lambda n: (-ties.get(n, 0), n))[:max(room, 0)])
+            left_out = len(ring) - len(kept)
+            ring = kept
+        frontier = ring
         visited |= frontier
-        if not frontier:
+        if not frontier or left_out:
             break
     # Links between two notes of the outermost ring belong in the picture
     # too, and the loop above never asked about those notes' links.
@@ -674,7 +696,7 @@ def get_graph_data(center_id: int, hops: int = 1):
         {"from": a, "to": b, "broken": b not in real_notes} for a, b in chosen_edges
     ]
 
-    return {"nodes": nodes, "edges": edge_list}
+    return {"nodes": nodes, "edges": edge_list, "left_out": left_out, "max_nodes": max_nodes}
 
 
 # ---------------------------------------------------------------------------
