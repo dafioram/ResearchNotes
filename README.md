@@ -161,9 +161,15 @@ span lines), drawn by KaTeX, bundled so it works offline. Prices are
 left alone -- "$5 and $10" stays text -- and `\$` is a plain dollar sign.
 Hover over a formula to see its TeX; bad TeX shows in red.
 
+**Tables**: pipe tables -- a header row, a `|---|---:|` row (colons
+align: `:---` left, `---:` right, `:---:` centered), then rows. Cells can
+hold bold, code, math, links, `#labels` and `[[refs]]`; `\|` is a literal
+pipe. Pasting cells copied from a spreadsheet, or comma-separated data,
+makes a table for you (Ctrl+Z gives back the plain paste).
+
 Not supported by design: image syntax (`![]()`), raw HTML passthrough
-(everything is escaped), nested/complex inline formatting inside link text,
-and tables. Raw text always wins over ambiguous or malformed syntax rather
+(everything is escaped), and nested/complex inline formatting inside link
+text. Raw text always wins over ambiguous or malformed syntax rather
 than throwing an error.
 
 Known parser limitations (it's a small regex-based subset parser, not a

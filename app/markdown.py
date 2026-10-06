@@ -38,6 +38,9 @@ Supported standard Markdown subset:
     1. item            ordered lists
     > quote            blockquotes
     ---  ***  ___      horizontal rules
+    | a | b |          tables: a header row, then a |---|---| row (colons
+    |---|--:|          align: :--- left, ---: right, :---: centered), then
+    | 1 | 2 |          rows; \\| is a literal pipe in a cell
     blank-line-separated paragraphs, single '\n' -> <br>
 
 Raw HTML is never passed through -- everything is escaped first, so the
@@ -80,12 +83,9 @@ MATH_INLINE_RE = re.compile(r"(?<![\w\\$])\$(?=[^\s$])([^$\n\x00]*?[^\s\\$])\$(?
 # where it runs into "://": "#http://x.org" is the address (which becomes
 # a link), not a label "#http" that the note wouldn't show.
 _LABEL_BODY = r"#([^\W\d_](?:[\w.-]*[^\W_])?)(?![\w.-]*://)"
-LABEL_RE = re.compile(r"(?<!\S)" + _LABEL_BODY)
-# Reading a note's labels from its raw text also counts a quote's '>' at
-# the very start of a line as the line's start: the renderer has taken
-# that '>' off before it looks, so ">#idea" shows a label -- and must
-# store one. (">>#idea" doesn't: inside the quote it's ">#idea".)
-_LABEL_IN_TEXT_RE = re.compile(r"(?:(?<!\S)|(?<=^>))" + _LABEL_BODY, re.MULTILINE)
+# A '|' counts as the gap before a label too ("a|#b"), as a table cell
+# written without spaces, "|#tag|", reads.
+LABEL_RE = re.compile(r"(?:(?<!\S)|(?<=\|))" + _LABEL_BODY)
 NOTE_REF_RE = re.compile(r"\[\[(\d+)\]\]")
 # [[later]] / [[later: a hint]] -- a link to fill in later (spec §6.2).
 LATER_RE = re.compile(r"\[\[\s*later\s*(?::\s*([^\[\]\n]*?)\s*)?\]\]", re.IGNORECASE)
@@ -101,6 +101,7 @@ class _Stash:
 
     items: dict = field(default_factory=dict)
     counter: int = 0
+    labels: set = field(default_factory=set)  # every label rendered, lowercased
 
     def store(self, kind: str, value):
         key = _PLACEHOLDER_TMPL.format(kind=kind, idx=self.counter)
@@ -131,11 +132,12 @@ def _strip_code(text: str, stash: _Stash) -> str:
 
 
 def extract_labels(body: str) -> set[str]:
-    """Return the set of distinct label names (lowercased) used in a note,
-    ignoring anything inside code blocks/spans."""
-    stash = _Stash()
-    stripped = _strip_code(body, stash)
-    return {m.group(1).lower() for m in _LABEL_IN_TEXT_RE.finditer(stripped)}
+    """Return the set of distinct label names (lowercased) used in a note:
+    the labels rendering it shows, collected as it renders. So what's
+    stored is exactly what shows, by construction -- nothing in code or
+    math, in a link or address, in a [[later: hint]]; a label in a table
+    cell or a quote is one (spec §6.1)."""
+    return _render_body(body, set())[1].labels
 
 
 def extract_note_refs(body: str) -> set[int]:
@@ -298,9 +300,10 @@ def _render_inline(text: str, stash: _Stash, existing_ids) -> str:
 
     # Labels are set aside before bold/italic too, so emphasis can't reach
     # into one ("#snake_case_" would otherwise lose "_case_" to italics),
-    # and so what shows as a label matches what extract_labels() stores.
+    # and they're recorded here: extract_labels() stores what this shows.
     def _label(m: re.Match) -> str:
         name = m.group(1)
+        stash.labels.add(name.lower())
         return stash.store(
             "LABELTAG",
             f'<a class="label-tag" href="/?q={quote("#" + name.lower())}">#{html.escape(name)}</a>',
@@ -355,6 +358,63 @@ BLOCKQUOTE_RE = re.compile(r"^>\s?(.*)$")
 UL_RE = re.compile(r"^\s*[-*]\s+(.*)$")
 OL_RE = re.compile(r"^\s*\d+\.\s+(.*)$")
 BLANK_RE = re.compile(r"^\s*$")
+# A table (spec §5.2): a header row, a separator row of dashes (colons for
+# alignment) with as many cells, then rows until a blank line or another
+# block. Cells split on '|' that isn't escaped; code and math are already
+# stashed, so a '|' inside them never splits.
+_CELL_SPLIT_RE = re.compile(r"(?<!\\)\|")
+_SEPARATOR_CELL_RE = re.compile(r"^\s*(:?)-+(:?)\s*$")
+
+
+def _table_cells(line: str) -> list[str]:
+    """A table row's cells: outer pipes dropped, split on unescaped '|',
+    each trimmed, with \\| left as a plain '|'."""
+    row = line.strip()
+    if row.startswith("|"):
+        row = row[1:]
+    if row.endswith("|") and not row.endswith("\\|"):
+        row = row[:-1]
+    return [c.strip().replace("\\|", "|") for c in _CELL_SPLIT_RE.split(row)]
+
+
+def _table_alignments(line: str):
+    """The separator row's alignments ('left', 'right', 'center' or ''),
+    or None if `line` isn't a separator row."""
+    if "-" not in line or not _CELL_SPLIT_RE.search(line):
+        return None
+    aligns = []
+    for cell in _table_cells(line):
+        m = _SEPARATOR_CELL_RE.match(cell)
+        if not m:
+            return None
+        left, right = m.group(1), m.group(2)
+        aligns.append("center" if left and right else "right" if right else "left" if left else "")
+    return aligns
+
+
+def _table_starts(lines: list[str], i: int):
+    """The alignments if a table starts at lines[i] (a header row with a
+    '|' followed by a separator row with as many cells), else None."""
+    if i + 1 >= len(lines) or not _CELL_SPLIT_RE.search(lines[i]):
+        return None
+    aligns = _table_alignments(lines[i + 1])
+    if aligns is None or len(aligns) != len(_table_cells(lines[i])):
+        return None
+    return aligns
+
+
+def _starts_block(lines: list[str], i: int) -> bool:
+    """Whether lines[i] starts a block other than a paragraph (so ends one)."""
+    line = lines[i]
+    return bool(
+        HEADER_RE.match(line)
+        or HR_RE.match(line)
+        or BLOCKQUOTE_RE.match(line)
+        or UL_RE.match(line)
+        or OL_RE.match(line)
+        or line.strip().startswith("\x00CODEBLOCK")
+        or _table_starts(lines, i) is not None
+    )
 
 
 def _render_lines(lines: list[str], stash: _Stash, existing_ids) -> list[str]:
@@ -393,6 +453,28 @@ def _render_lines(lines: list[str], stash: _Stash, existing_ids) -> list[str]:
             i += 1
             continue
 
+        aligns = _table_starts(lines, i)
+        if aligns is not None:
+            def row_html(cells, tag):
+                # A short row is padded to the header's width. A long one
+                # keeps its extra cells: cutting them would hide labels
+                # and links that are still stored from the text.
+                cells = cells + [""] * (len(aligns) - len(cells))
+                cell_aligns = aligns + [""] * (len(cells) - len(aligns))
+                return "<tr>" + "".join(
+                    f'<{tag}{f" class={chr(34)}align-{a}{chr(34)}" if a else ""}>{inline(c)}</{tag}>'
+                    for c, a in zip(cells, cell_aligns)) + "</tr>"
+
+            head = row_html(_table_cells(line), "th")
+            i += 2
+            body = []
+            while i < n and not BLANK_RE.match(lines[i]) and not _starts_block(lines, i):
+                body.append(row_html(_table_cells(lines[i]), "td"))
+                i += 1
+            out.append('<table class="note-table"><thead>' + head + "</thead>"
+                       + ("<tbody>" + "".join(body) + "</tbody>" if body else "") + "</table>")
+            continue
+
         if BLOCKQUOTE_RE.match(line):
             buf = []
             while i < n and BLOCKQUOTE_RE.match(lines[i]):
@@ -421,14 +503,7 @@ def _render_lines(lines: list[str], stash: _Stash, existing_ids) -> list[str]:
         # block type.
         buf = [line]
         i += 1
-        while i < n and not BLANK_RE.match(lines[i]) and not (
-            HEADER_RE.match(lines[i])
-            or HR_RE.match(lines[i])
-            or BLOCKQUOTE_RE.match(lines[i])
-            or UL_RE.match(lines[i])
-            or OL_RE.match(lines[i])
-            or (lines[i].strip().startswith("\x00CODEBLOCK"))
-        ):
+        while i < n and not BLANK_RE.match(lines[i]) and not _starts_block(lines, i):
             buf.append(lines[i])
             i += 1
         out.append("<p>" + "<br>".join(inline(b) for b in buf) + "</p>")
@@ -447,15 +522,18 @@ def render(body: str, existing_ids=None) -> str:
     """Render a full note body to HTML. `existing_ids`: the referenced
     notes that exist, as a set, or a dict of id -> title to show each
     [[ref]] by its note's title (db.note_titles)."""
-    existing_ids = existing_ids or set()
+    blocks, stash = _render_body(body, existing_ids or set())
+    return _resolve_placeholders("\n".join(blocks), stash)
+
+
+def _render_body(body: str, existing_ids):
+    """The block-level HTML (placeholders unresolved) and the stash, which
+    holds what was set aside and every label shown."""
     stash = _Stash()
     stripped = _strip_code(body, stash)
     escaped = _escape_text(stripped)
     # Placeholder tokens contain no '&' or '<' so they pass through intact.
-    lines = escaped.split("\n")
-    blocks = _render_lines(lines, stash, existing_ids)
-    html_out = "\n".join(blocks)
-    return _resolve_placeholders(html_out, stash)
+    return _render_lines(escaped.split("\n"), stash, existing_ids), stash
 
 
 def render_first_line(body: str, existing_ids=None) -> str:
@@ -467,7 +545,7 @@ def render_first_line(body: str, existing_ids=None) -> str:
 
 
 _TAG_RE = re.compile(r"<[^>]+>")
-_BLOCK_TAG_RE = re.compile(r"</?(?:p|h[1-6]|li|ul|ol|blockquote|pre|br|hr)\b[^>]*>")
+_BLOCK_TAG_RE = re.compile(r"</?(?:p|h[1-6]|li|ul|ol|blockquote|pre|br|hr|table|thead|tbody|tr|th|td)\b[^>]*>")
 
 
 def _to_plain(rendered_html: str) -> str:
@@ -496,7 +574,7 @@ _SENTINEL = "\x01"  # marks the mention being extracted; survives rendering
 
 def _context_units(text: str) -> list[str]:
     """Split (code-stashed) note text into the same units the renderer
-    treats as blocks: each header line and each list item on its own,
+    treats as blocks: each header line, list item and table row on its own,
     consecutive blockquote lines together, and consecutive plain lines
     together as a paragraph. The context for a mention is the unit it's in
     -- so a link in one bullet of a list shows that bullet, not the list."""
@@ -510,7 +588,20 @@ def _context_units(text: str) -> list[str]:
             units.append("\n".join(group))
         group, group_kind = [], None
 
-    for line in text.split("\n"):
+    lines = text.split("\n")
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        if _table_starts(lines, i) is not None:
+            # Each row is its own unit, as its cells: "Base | 0.81 | see [[12]]".
+            flush()
+            units.append(" | ".join(_table_cells(line)))
+            i += 2
+            while i < len(lines) and not BLANK_RE.match(lines[i]) and not _starts_block(lines, i):
+                units.append(" | ".join(_table_cells(lines[i])))
+                i += 1
+            continue
+        i += 1
         if BLANK_RE.match(line) or HR_RE.match(line):
             flush()
         elif line.strip().startswith("\x00CODEBLOCK") and _PLACEHOLDER_RE.fullmatch(line.strip()):

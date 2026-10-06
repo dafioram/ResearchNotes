@@ -396,9 +396,10 @@ Hand-rolled, not CommonMark. Supported:
 | `---` / `***` / `___` | `<hr>` |
 | blank-line-separated paragraphs; single `\n` | `<p>`; `<br>` |
 | `$x^2$` / `$$…$$` | math, drawn by KaTeX (§5.1) |
+| `\| a \| b \|` + `\|---\|--:\|` + rows | `<table>` (§5.2) |
 
 Deliberately **not** supported: image syntax (`![]()` — attachments are
-a separate, non-inline feature, §9), tables, raw HTML passthrough
+a separate, non-inline feature, §9), raw HTML passthrough
 (everything is HTML-escaped first, so the table above is genuinely the
 entire vocabulary available — there is no way to smuggle a `<script>`
 tag through a note body).
@@ -471,6 +472,54 @@ TeX between dollar signs, the way most research writing tools take it:
   History and the graph show `$e^{-t/S}$` as typed. Search indexes the
   note as typed, so `lambda` finds `$\lambda$`.
 
+### 5.2 Tables
+
+Pipe tables, as in GitHub, pandoc and Obsidian, so they paste in from
+other tools and copy back out unchanged:
+
+```
+| Model | Accuracy | Notes        |
+|:------|---------:|--------------|
+| Base  |     0.81 | see [[12]]   |
+| +aug  | **0.86** | $p < 0.01$   |
+```
+
+- **A header row, then a separator row** of dashes with as many cells,
+  then rows. The separator is required, so a stray `|` in prose never
+  makes a table. Outer pipes and spacing are optional (`A | B` / `--- |
+  ---` works).
+- **Alignment** from colons in the separator: `:---` left, `---:` right
+  (numbers line up), `:---:` centered. Shown as `class="align-…"` on each
+  cell, not a style attribute.
+- **Cells** hold inline markdown: emphasis, code, math, links, `#labels`
+  and `[[refs]]`, which count like anywhere else. `\|` is a literal pipe;
+  a `|` inside code or math never splits a cell, since those are set
+  aside first.
+- **Rows** run until a blank line or another block (header, list, quote,
+  rule, code block, another table). A row with too few cells is padded
+  to the header's width; one with too many keeps its extra cells (GitHub
+  drops them, but then a label or link in one would be stored without
+  showing). No merged cells and no
+  line breaks inside a cell -- a deliberate limit, shared with the other
+  tools.
+- **A table ends a paragraph**: a line of text right above the header
+  row is its own paragraph.
+- A wide table scrolls sideways inside the note.
+- **Backlinks**: a `[[ref]]` in a cell shows its row as the passage, the
+  cells joined by `|` ("Base | see [[12]]"), not the whole table (§6.5).
+- **Pasting** (the editor, `app.js`): cells copied from a spreadsheet
+  arrive as tab-separated text, and exported data is often
+  comma-separated. Either becomes a pipe table -- columns padded to line
+  up, columns of numbers right-aligned, `|` in a cell escaped, line
+  breaks in a cell made spaces -- when it has two or more rows of the
+  same number of cells (two or more), none empty in the first row.
+  Quoted cells (`"Smith, J."`, `"two\nlines"`) are read as one. With
+  commas, no unquoted cell may start with a space: that's how prose
+  ("Hello, world") differs from data (`Model,Accuracy`). Never inside a
+  ` ``` ` code block. The table goes on lines of its own, ended by a
+  blank line. The paste goes in as it was first and the table then
+  replaces it, so **Ctrl+Z gives back exactly what was pasted**.
+
 ## 6. Labels and note references
 
 ### 6.1 `#label`
@@ -495,16 +544,30 @@ What is and isn't a label:
 - A hex colour like `#fff` still reads as a label; wrap it in backticks.
 - A `#` running into a web address isn't a label: `#http://x.org` is the
   address, which becomes a link.
+- A `|` counts like whitespace before a label, so a table cell written
+  without spaces, `|#baseline|`, holds the label `#baseline` (§5.2). The
+  same goes outside tables: `a|#b` is a label.
+- Nothing inside a web address, a `[text](url)` link (its text or its
+  address) or a `[[later: hint]]` is a label: rendering sets those aside
+  first and shows them as typed. (`[a #draft](url)` used to store
+  `#draft` without showing it; such notes drop it at their next save or
+  `flask reindex`.)
 - A quote marker at the very start of a line counts as the line's start:
-  `>#idea` is a label inside the quote. (Both rules keep what's stored
-  as a label identical to what shows as one; property tests,
-  `tests/test_properties.py`, check that over thousands of generated
-  texts.)
+  `>#idea` is a label inside the quote. (What's stored is what shows,
+  below; property tests, `tests/test_properties.py`, check that over
+  thousands of generated texts.)
 
-Rendering finds labels on the same text, before bold and italic run, so
-what shows as a label is exactly what's stored as one (emphasis used to
-reach into labels: `#snake_case_` displayed as `#snake` and an italic
-"case"). The label's link searches for it: `/?q=%23<name>`, percent-encoded
+**What's stored is what shows, by construction:** a note's labels are
+collected while rendering it (`extract_labels()` renders the note and
+keeps every label it drew), not by a second scan of the raw text that
+would have to repeat every rule -- code, math, links, tables, quotes --
+and could drift from it. Two separate scans did drift (a label in a
+table row cut short, or after a `|` inside an address, was stored but not
+shown); the property tests found both. Rendering a note takes well under
+a millisecond, so this costs nothing noticeable on save, and about 20
+seconds over 36,500 notes for `flask reindex`. Labels are found before
+bold and italic run (emphasis used to reach into them: `#snake_case_`
+displayed as `#snake` and an italic "case"). The label's link searches for it: `/?q=%23<name>`, percent-encoded
 (§6.4).
 These rules were tightened from "a `#` not after another `#`, then
 letters, digits, `_` and `-`" (which made `#3` a label and cut `#café`

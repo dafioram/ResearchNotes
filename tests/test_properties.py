@@ -20,11 +20,11 @@ MARKUP = st.lists(
     st.sampled_from(list("ab #*_~`[]()<>&\"'\n:/.-!|=\\")
                     + ["javascript:", "http://x.org", "[[", "]]", "[[later", "```", "<script>",
                        "onerror=", "é", "日", "\r\n", "\t", "#lab", "data:", "&lt;", "\x00", "1",
-                       "$", "$$", "\\$", "$x$"]),
+                       "$", "$$", "\\$", "$x$", "|", "|---|", "\\|", "| a |\n|-|\n"]),
     max_size=60,
 ).map("".join)
 SAFE_TAGS = {"p", "br", "h1", "h2", "h3", "h4", "h5", "h6", "strong", "em", "del", "code", "pre",
-             "ul", "ol", "li", "blockquote", "hr", "a", "span"}
+             "ul", "ol", "li", "blockquote", "hr", "a", "span", "table", "thead", "tbody", "tr", "th", "td"}
 
 
 class _Tags(html.parser.HTMLParser):
