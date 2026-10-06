@@ -114,7 +114,8 @@ in [spec.md](spec.md).
   changed since, and **Restore** brings it back as a new edit (so the
   text it replaces is kept too, and a restore can be undone). About 1 MB
   a year at 10 notes a day.
-- **Soft delete** with a Trash view to restore notes. A note in Trash
+- **Soft delete** with a Trash view (titles, pages, Restore, **Delete
+  permanently** and **Empty Trash**) to restore notes. A note in Trash
   drops out of labels, links and search until it's restored.
 - **Attachments**, stored in their own table (many-to-many with notes, so
   one uploaded file can be linked from several notes) and content-addressed
@@ -126,7 +127,9 @@ in [spec.md](spec.md).
   fine); adding or removing a file happens in place, without reloading,
   so unsaved text is never lost. Images, PDFs, plain text, audio and
   video open in the browser; anything else (HTML and SVG included)
-  downloads.
+  downloads. A file is deleted from disk once no note uses it (removed
+  from its last note, or its last note deleted permanently; a note in
+  Trash still keeps its files).
 - Structure notes / MOCs and Folgezettel-style numbering are intentionally
   **not** special-cased -- a structure note is just an ordinary note whose
   body links to others.
@@ -226,6 +229,14 @@ docker compose exec research-notes flask --app app reindex   # Docker
 Add `--vacuum` to also compact the database file afterwards. That
 rewrites the whole file once, so a deduplicating backup copies it in
 full that one time.
+
+Files no note uses are deleted as they stop being used. Earlier versions
+kept them; to clear out any left behind (once):
+
+```bash
+flask --app app prune-files                                      # plain Python
+docker compose exec research-notes flask --app app prune-files   # Docker
+```
 
 ## Project layout
 

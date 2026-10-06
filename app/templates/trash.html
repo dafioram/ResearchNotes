@@ -1,25 +1,49 @@
 {% extends "base.html" %}
+{% from "_macros.html" import pagination %}
 {% block title %}Trash &middot; Research Notes{% endblock %}
 
 {% block sidebar %}
   <h1 class="sidebar-title">Trash</h1>
   <p class="sidebar-text">Deleted notes keep their number. Links to them show as broken until they&rsquo;re restored.</p>
-  <p class="sidebar-count">{{ notes | length }} note{{ 's' if notes | length != 1 else '' }}</p>
+  <p class="sidebar-count">{{ pager['total'] }} note{{ 's' if pager['total'] != 1 else '' }}</p>
+  {% if pager['total'] %}
+    <form method="post" action="{{ url_for('notes.empty_trash') }}"
+          data-confirm="Permanently delete all {{ pager['total'] }} note{{ 's' if pager['total'] != 1 else '' }} in Trash? This can&rsquo;t be undone.">
+      <button type="submit" class="btn-quiet btn-danger">Empty Trash</button>
+    </form>
+    <p class="hint">Deleting permanently also removes the notes&rsquo; history and versions, and files no other note uses.</p>
+  {% endif %}
 {% endblock %}
 
 {% block content %}
   {% if notes %}
+    {% set page = pager['page'] if pager['page'] > 1 else None %}
     <div class="trash-list">
       {% for n in notes %}
         <div class="trash-row">
-          <span>No. {{ n['id'] }} &mdash; deleted {{ n['deleted_on'] }}</span>
-          <form method="post" action="{{ url_for('notes.restore_note', note_id=n['id']) }}">
-            <button type="submit" class="btn-quiet">Restore</button>
-          </form>
+          <span class="trash-note">
+            <span class="history-no">No. {{ n['id'] }}</span>
+            <span class="trash-title">{{ n['title'] }}</span>
+            <span class="trash-meta">{{ n['line_count'] }} line{{ 's' if n['line_count'] != 1 else '' }} &middot; deleted {{ n['deleted_on'] }}</span>
+          </span>
+          <span class="trash-actions">
+            <form method="post" action="{{ url_for('notes.restore_note', note_id=n['id'], page=page) }}">
+              <button type="submit" class="btn-quiet">Restore</button>
+            </form>
+            <form method="post" action="{{ url_for('notes.delete_forever', note_id=n['id'], page=page) }}"
+                  data-confirm="Permanently delete No. {{ n['id'] }}? This can&rsquo;t be undone.">
+              <button type="submit" class="btn-quiet btn-danger">Delete permanently</button>
+            </form>
+          </span>
         </div>
       {% endfor %}
     </div>
+    {{ pagination(pager) }}
   {% else %}
     <div class="empty-state">Trash is empty.</div>
   {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='trash.js') }}"></script>
 {% endblock %}
