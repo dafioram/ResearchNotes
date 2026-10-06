@@ -83,14 +83,9 @@ MATH_INLINE_RE = re.compile(r"(?<![\w\\$])\$(?=[^\s$])([^$\n\x00]*?[^\s\\$])\$(?
 # where it runs into "://": "#http://x.org" is the address (which becomes
 # a link), not a label "#http" that the note wouldn't show.
 _LABEL_BODY = r"#([^\W\d_](?:[\w.-]*[^\W_])?)(?![\w.-]*://)"
-# A '|' counts as the gap before a label too, so "|#tag|" in a table is a
-# label both when shown (the cell is "#tag") and when stored from the text.
+# A '|' counts as the gap before a label too ("a|#b"), as a table cell
+# written without spaces, "|#tag|", reads.
 LABEL_RE = re.compile(r"(?:(?<!\S)|(?<=\|))" + _LABEL_BODY)
-# Reading a note's labels from its raw text also counts a quote's '>' at
-# the very start of a line as the line's start: the renderer has taken
-# that '>' off before it looks, so ">#idea" shows a label -- and must
-# store one. (">>#idea" doesn't: inside the quote it's ">#idea".)
-_LABEL_IN_TEXT_RE = re.compile(r"(?:(?<!\S)|(?<=\|)|(?<=^>))" + _LABEL_BODY, re.MULTILINE)
 NOTE_REF_RE = re.compile(r"\[\[(\d+)\]\]")
 # [[later]] / [[later: a hint]] -- a link to fill in later (spec §6.2).
 LATER_RE = re.compile(r"\[\[\s*later\s*(?::\s*([^\[\]\n]*?)\s*)?\]\]", re.IGNORECASE)
@@ -106,6 +101,7 @@ class _Stash:
 
     items: dict = field(default_factory=dict)
     counter: int = 0
+    labels: set = field(default_factory=set)  # every label rendered, lowercased
 
     def store(self, kind: str, value):
         key = _PLACEHOLDER_TMPL.format(kind=kind, idx=self.counter)
@@ -135,21 +131,13 @@ def _strip_code(text: str, stash: _Stash) -> str:
     return text
 
 
-# A bare address in raw text, as AUTOLINK_RE finds it in escaped text
-# (where a raw "<" is "&lt;").
-_RAW_AUTOLINK_RE = re.compile(r"(?<![\w/])https?://[^\s\"\x00<]+", re.IGNORECASE)
-
-
 def extract_labels(body: str) -> set[str]:
-    """Return the set of distinct label names (lowercased) used in a note,
-    ignoring anything inside code or math -- and, as rendering does, inside
-    a [[later: hint]], a [text](url) link or a bare address, which are set
-    aside before labels there: what's stored is exactly what shows."""
-    stash = _Stash()
-    stripped = _strip_code(body, stash)
-    for pattern in (LATER_RE, LINK_RE, _RAW_AUTOLINK_RE):
-        stripped = pattern.sub("\x00", stripped)
-    return {m.group(1).lower() for m in _LABEL_IN_TEXT_RE.finditer(stripped)}
+    """Return the set of distinct label names (lowercased) used in a note:
+    the labels rendering it shows, collected as it renders. So what's
+    stored is exactly what shows, by construction -- nothing in code or
+    math, in a link or address, in a [[later: hint]]; a label in a table
+    cell or a quote is one (spec §6.1)."""
+    return _render_body(body, set())[1].labels
 
 
 def extract_note_refs(body: str) -> set[int]:
@@ -312,9 +300,10 @@ def _render_inline(text: str, stash: _Stash, existing_ids) -> str:
 
     # Labels are set aside before bold/italic too, so emphasis can't reach
     # into one ("#snake_case_" would otherwise lose "_case_" to italics),
-    # and so what shows as a label matches what extract_labels() stores.
+    # and they're recorded here: extract_labels() stores what this shows.
     def _label(m: re.Match) -> str:
         name = m.group(1)
+        stash.labels.add(name.lower())
         return stash.store(
             "LABELTAG",
             f'<a class="label-tag" href="/?q={quote("#" + name.lower())}">#{html.escape(name)}</a>',
@@ -533,15 +522,18 @@ def render(body: str, existing_ids=None) -> str:
     """Render a full note body to HTML. `existing_ids`: the referenced
     notes that exist, as a set, or a dict of id -> title to show each
     [[ref]] by its note's title (db.note_titles)."""
-    existing_ids = existing_ids or set()
+    blocks, stash = _render_body(body, existing_ids or set())
+    return _resolve_placeholders("\n".join(blocks), stash)
+
+
+def _render_body(body: str, existing_ids):
+    """The block-level HTML (placeholders unresolved) and the stash, which
+    holds what was set aside and every label shown."""
     stash = _Stash()
     stripped = _strip_code(body, stash)
     escaped = _escape_text(stripped)
     # Placeholder tokens contain no '&' or '<' so they pass through intact.
-    lines = escaped.split("\n")
-    blocks = _render_lines(lines, stash, existing_ids)
-    html_out = "\n".join(blocks)
-    return _resolve_placeholders(html_out, stash)
+    return _render_lines(escaped.split("\n"), stash, existing_ids), stash
 
 
 def render_first_line(body: str, existing_ids=None) -> str:

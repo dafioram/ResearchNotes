@@ -66,6 +66,7 @@ def test_a_table_ends_at_a_blank_line_or_another_block_and_ends_a_paragraph():
     ("|#tag|x|\n|-|-|", {"tag"}),
     ("| a |#tag|\n|---|---|", {"tag"}),
     ("a|#tag in prose", {"tag"}),         # the same rule outside tables
+    ("| a |\n|-|\nhttp://x.org|#tag", {"tag"}),   # a row splits into cells before addresses are linked
 ])
 def test_a_label_right_after_a_pipe_is_shown_and_stored(text, labels):
     assert md.extract_labels(text) == labels

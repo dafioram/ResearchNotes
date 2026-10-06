@@ -549,19 +549,25 @@ What is and isn't a label:
   same goes outside tables: `a|#b` is a label.
 - Nothing inside a web address, a `[text](url)` link (its text or its
   address) or a `[[later: hint]]` is a label: rendering sets those aside
-  first and shows them as typed, so they're skipped when labels are
-  stored, too. (`[a #draft](url)` used to store `#draft` without showing
-  it; such notes drop it at their next save or `flask reindex`.)
+  first and shows them as typed. (`[a #draft](url)` used to store
+  `#draft` without showing it; such notes drop it at their next save or
+  `flask reindex`.)
 - A quote marker at the very start of a line counts as the line's start:
-  `>#idea` is a label inside the quote. (Both rules keep what's stored
-  as a label identical to what shows as one; property tests,
-  `tests/test_properties.py`, check that over thousands of generated
-  texts.)
+  `>#idea` is a label inside the quote. (What's stored is what shows,
+  below; property tests, `tests/test_properties.py`, check that over
+  thousands of generated texts.)
 
-Rendering finds labels on the same text, before bold and italic run, so
-what shows as a label is exactly what's stored as one (emphasis used to
-reach into labels: `#snake_case_` displayed as `#snake` and an italic
-"case"). The label's link searches for it: `/?q=%23<name>`, percent-encoded
+**What's stored is what shows, by construction:** a note's labels are
+collected while rendering it (`extract_labels()` renders the note and
+keeps every label it drew), not by a second scan of the raw text that
+would have to repeat every rule -- code, math, links, tables, quotes --
+and could drift from it. Two separate scans did drift (a label in a
+table row cut short, or after a `|` inside an address, was stored but not
+shown); the property tests found both. Rendering a note takes well under
+a millisecond, so this costs nothing noticeable on save, and about 20
+seconds over 36,500 notes for `flask reindex`. Labels are found before
+bold and italic run (emphasis used to reach into them: `#snake_case_`
+displayed as `#snake` and an italic "case"). The label's link searches for it: `/?q=%23<name>`, percent-encoded
 (§6.4).
 These rules were tightened from "a `#` not after another `#`, then
 letters, digits, `_` and `-`" (which made `#3` a label and cut `#café`
