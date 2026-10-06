@@ -421,6 +421,18 @@ a:hover { color: var(--ink); }
 
 .note-card-top .meta { margin-bottom: 0; }
 
+/* A card's labels (spec §4): small chips at the right of its header. */
+.card-labels {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+}
+.card-labels .card-label { font-size: 12px; padding: 1px 5px; }
+.card-label-more { font-family: var(--mono); font-size: 12px; color: var(--ink-faint); cursor: default; }
+
 .meta-link { text-decoration: none; color: var(--ink-soft); }
 .meta-link:hover { color: var(--ink); border-color: var(--ink); background: #fff; }
 

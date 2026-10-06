@@ -19,9 +19,11 @@ in [spec.md](spec.md).
   (numbered pages, not infinite scroll), under day headings ("Today",
   "Yesterday", "Monday 5 October"), with **Jump to** a month in the
   sidebar. Each entry shows a stamped header
-  (note number, sort date, line count, plus file and backlink counts when
-  non-zero) and a snippet that is the rendered markdown of just the first
-  line. Click a card to expand it in place to the full rendered note, its
+  (note number, sort date, line count, plus when non-zero its files and
+  `links 3 → · 20 ←` -- notes it links to, notes linking to it), its
+  labels as small chips (up to three, those not already in the title;
+  click one to filter by it), and a snippet that is the rendered markdown
+  of just the first line. Click a card to expand it in place to the full rendered note, its
   attachments and its backlinks; its Edit button opens the note straight
   in Edit mode.
 - **Search** from the box in the top bar, on every page. Plain words are

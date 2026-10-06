@@ -114,3 +114,11 @@ def test_jump_to_a_month_scrolls_to_its_day(page, live):
     expect(page).to_have_url(re.compile(r"#d-2026-03-17$"))
     heading = page.locator("#d-2026-03-17")
     expect(heading).to_be_in_viewport()
+
+
+def test_a_label_chip_on_a_card_filters_by_it(page, live):
+    live.note("# Results\n\n#analysis #exp-e2", "2026-02-01")
+    page.goto("/")
+    page.locator(".card-labels a", has_text="#exp-e2").click()
+    expect(page).to_have_url(re.compile(r"/\?q=%23exp-e2$"))
+    expect(page.locator(".note-card")).to_have_count(1)

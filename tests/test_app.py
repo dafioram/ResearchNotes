@@ -684,17 +684,42 @@ def test_backlinks_exclude_deleted_sources(client, app):
     assert b"backlink" not in client.get("/").data
 
 
-def test_feed_card_shows_backlink_count_badge(client, app):
+def _card(body, note_id):
+    """The HTML of one card on a feed page."""
+    start = body.index(f'data-note-id="{note_id}"')
+    return body[start:body.index('class="card-clickzone"', start)]
+
+
+def test_feed_card_shows_links_out_and_in(client, app):
     with app.app_context():
         target = dbmod.create_note("# Popular note", "2026-01-01")
         dbmod.create_note(f"one [[{target}]]", "2026-01-02")
         dbmod.create_note(f"two [[{target}]]", "2026-01-03")
-        lone = dbmod.create_note(f"three [[{target}]]", "2026-01-04")
-        dbmod.create_note(f"four [[{lone}]]", "2026-01-05")
+        lone = dbmod.create_note(f"three [[{target}]] [[999]]", "2026-01-04")   # [[999]]: a ghost, not counted
+        last = dbmod.create_note(f"four [[{lone}]]", "2026-01-05")
+        quiet = dbmod.create_note("# No links at all", "2026-01-06")
 
     body = client.get("/").data.decode()
-    assert "3 backlinks<" in body
-    assert "1 backlink<" in body
+    assert "links 3&nbsp;&larr;</span>" in _card(body, target)
+    assert 'title="links to 1 note; 1 note links here"' in _card(body, lone)
+    assert "links 1&nbsp;&rarr; &middot; 1&nbsp;&larr;</span>" in _card(body, lone)
+    assert "links 1&nbsp;&rarr;</span>" in _card(body, last)
+    assert "links" not in _card(body, quiet)
+
+
+def test_feed_card_shows_its_labels_less_those_in_the_title(client, app):
+    with app.app_context():
+        few = dbmod.create_note("# About #memory\n\n#sleep #naps", "2026-01-01")
+        many = dbmod.create_note("# Many\n\n#e #a #d #b #c", "2026-01-02")
+        title_only = dbmod.create_note("# Only #title", "2026-01-03")
+    body = client.get("/").data.decode()
+    chips = _card(body, few)
+    assert 'href="/?q=%23naps">#naps</a>' in chips and ">#sleep</a>" in chips
+    assert ">#memory</a>" not in chips                                  # already in the title
+    chips = _card(body, many)
+    assert [x for x in "abcde" if f">#{x}</a>" in chips] == ["a", "b", "c"]   # A-Z, three shown
+    assert 'title="#d #e">+2</span>' in chips
+    assert "card-labels" not in _card(body, title_only)
 
 
 def test_backlink_badge_count_matches_backlink_list(client, app):

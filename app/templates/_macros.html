@@ -1,8 +1,9 @@
 {#
   Shared rendering for one note card in a list (the feed, searched or
-  not): expand/collapse, Edit button, badges. Expects a dict with: id,
-  sort_date, line_count, attachment_count, backlink_count, snippet_html,
-  and match_html (the passage a search matched, highlighted) or None.
+  not): expand/collapse, Edit button, badges, label chips. Expects a dict
+  with: id, sort_date, line_count, attachment_count, backlink_count,
+  link_count, labels (those not in the title), snippet_html, and
+  match_html (the passage a search matched, highlighted) or None.
 #}
 {% macro note_card(n) -%}
 <div class="note-card" data-note-id="{{ n['id'] }}"
@@ -15,10 +16,27 @@
       {% if n['attachment_count'] %}
         <span class="meta-item">{{ n['attachment_count'] }} file{{ 's' if n['attachment_count'] != 1 else '' }}</span>
       {% endif %}
-      {% if n['backlink_count'] %}
-        <span class="meta-item">{{ n['backlink_count'] }} backlink{{ 's' if n['backlink_count'] != 1 else '' }}</span>
+      {% if n['link_count'] or n['backlink_count'] %}
+        {%- set described = [] %}
+        {%- if n['link_count'] %}{% set _ = described.append('links to ' ~ n['link_count'] ~ ' note' ~ ('s' if n['link_count'] != 1 else '')) %}{% endif %}
+        {%- if n['backlink_count'] %}{% set _ = described.append(n['backlink_count'] ~ ' note' ~ ('s link' if n['backlink_count'] != 1 else ' links') ~ ' here') %}{% endif %}
+        <span class="meta-item" title="{{ described | join('; ') }}" aria-label="{{ described | join('; ') }}">links
+          {%- if n['link_count'] %} {{ n['link_count'] }}&nbsp;&rarr;{% endif %}
+          {%- if n['link_count'] and n['backlink_count'] %} &middot;{% endif %}
+          {%- if n['backlink_count'] %} {{ n['backlink_count'] }}&nbsp;&larr;{% endif %}</span>
       {% endif %}
     </div>
+    {% if n['labels'] %}
+      {# Its labels, to see what a note is about and filter by one with a click (spec §4). #}
+      <div class="card-labels">
+        {%- for name in n['labels'][:3] %}
+          <a class="label-tag card-label" href="{{ url_for('notes.feed', q='#' ~ name) }}">#{{ name }}</a>
+        {%- endfor %}
+        {%- if n['labels'] | length > 3 %}
+          <span class="card-label-more" title="#{{ n['labels'][3:] | join(' #') }}">+{{ n['labels'] | length - 3 }}</span>
+        {%- endif %}
+      </div>
+    {% endif %}
     <div class="note-card-actions">
       <a class="card-action" href="{{ url_for('notes.edit_note_form', note_id=n['id']) }}">Edit</a>
       <button type="button" class="disclosure-btn" aria-expanded="false" aria-label="Expand note {{ n['id'] }}">

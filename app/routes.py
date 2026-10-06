@@ -62,6 +62,10 @@ def _note_view_model(row):
     }
 
 
+def _first_line(body):
+    return next((line for line in body.splitlines() if line.strip()), "")
+
+
 def _card_items(notes, matches=None):
     """Build the per-card dicts used by every list of notes (the feed,
     with or without a search) so cards look and behave the same however a
@@ -74,6 +78,8 @@ def _card_items(notes, matches=None):
     )
     attachment_counts = db.get_attachment_counts(ids)
     backlink_counts = db.get_backlink_counts(ids)
+    link_counts = db.get_link_counts(ids)
+    card_labels = db.get_card_labels(ids)
     return [
         {
             "id": n["id"],
@@ -82,6 +88,10 @@ def _card_items(notes, matches=None):
             "snippet_html": md.render_first_line(n["body"], ref_titles),
             "attachment_count": attachment_counts.get(n["id"], 0),
             "backlink_count": backlink_counts.get(n["id"], 0),
+            "link_count": link_counts.get(n["id"], 0),
+            # Chips for its labels, less any already in the title line.
+            "labels": [name for name in card_labels.get(n["id"], [])
+                       if name not in md.extract_labels(_first_line(n["body"]))],
             # the passage that matched a search, highlighted (HTML)
             "match_html": (matches or {}).get(n["id"]),
         }
