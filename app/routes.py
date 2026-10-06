@@ -99,17 +99,18 @@ def _title_line(body):
 def _backlink_items(note_id):
     """Each note linking to `note_id`: its first line as a title, plus the
     passage around every mention of [[note_id]] in it (why it links here).
-    [[refs]] in both show as their notes' titles."""
+    The mention reads "this note" -- the list sits under that note, so its
+    title would only repeat on every row; other [[refs]] show as titles."""
     rows = [(b, md.first_line_text(b["body"]), md.ref_contexts(b["body"], note_id))
             for b in db.get_backlinks(note_id)]
-    titled = _titled([f"[[{note_id}]]"] + [t for _, text, mentions in rows
-                     for t in [text] + [m["before"] + m["after"] for m in mentions]])
+    titled = _titled([t for _, text, mentions in rows
+                      for t in [text] + [m["before"] + m["after"] for m in mentions]])
     return [
         {
             "id": b["id"],
             "sort_date": b["sort_date"],
             "text": titled(text),
-            "mentions": [{**m, "before": titled(m["before"]), "ref": titled(m["ref"]),
+            "mentions": [{**m, "before": titled(m["before"]), "ref": "this note",
                           "after": titled(m["after"])} for m in mentions],
         }
         for b, text, mentions in rows
