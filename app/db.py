@@ -722,7 +722,7 @@ def _links_touching(db, note_ids) -> set[tuple[int, int]]:
 # A graph shows at most this many hops, and this many notes: past a few
 # hundred boxes the layout takes seconds and the picture is a hairball.
 GRAPH_MAX_HOPS = 3
-GRAPH_MAX_NODES = 300
+GRAPH_MAX_NODES = 200
 
 
 def get_graph_data(center_id: int, hops: int = 1, max_nodes: int = GRAPH_MAX_NODES):

@@ -48,6 +48,8 @@ import re
 from urllib.parse import quote
 from dataclasses import dataclass, field
 
+from markupsafe import Markup, escape
+
 # ---------------------------------------------------------------------------
 # Extraction (used both for metadata syncing at save time, and for rendering)
 # ---------------------------------------------------------------------------
@@ -209,11 +211,35 @@ def _ref_html(note_id: int, existing) -> str:
     title = existing.get(note_id) if isinstance(existing, dict) else None
     if not title:
         return f'<a class="note-ref" href="/notes/{note_id}">[[{note_id}]]</a>'
-    shown = title if len(title) <= REF_TITLE_MAX else title[:REF_TITLE_MAX - 1].rstrip() + "\u2026"
+    shown = _shown_title(title)
     return (
         f'<a class="note-ref titled" href="/notes/{note_id}" data-id="{note_id}" '
         f'title="No. {note_id}: {html.escape(title, quote=True)}">{html.escape(shown, quote=False)}</a>'
     )
+
+
+def _shown_title(title: str) -> str:
+    return title if len(title) <= REF_TITLE_MAX else title[:REF_TITLE_MAX - 1].rstrip() + "\u2026"
+
+
+def refs_as_titles(text: str, titles: dict) -> Markup:
+    """Plain text -- a title line, a backlink passage, a History line -- as
+    HTML with each [[id]] of a note in `titles` (id -> title) shown as its
+    title with the number small after it, like a [[ref]] in a rendered
+    note, but as text: these sit inside links of their own. Refs to notes
+    that don't exist (or have no title) stay "[[id]]"."""
+    parts, pos = [], 0
+    for m in NOTE_REF_RE.finditer(text):
+        parts.append(escape(text[pos:m.start()]))
+        note_id, title = int(m.group(1)), titles.get(int(m.group(1)))
+        parts.append(
+            Markup('<span class="ref-title" title="No. {0}: {1}">{2}<span class="ref-no">{0}</span></span>')
+            .format(note_id, title, _shown_title(title))
+            if title else escape(m.group(0))
+        )
+        pos = m.end()
+    parts.append(escape(text[pos:]))
+    return Markup("").join(parts)
 
 
 def _later_html(m: re.Match) -> str:

@@ -587,6 +587,16 @@ a:hover { color: var(--ink); }
 }
 .note-ref.titled:hover::after { color: var(--ink); }
 
+/* The same, as text: a [[ref]] in a title line, backlink passage or
+   History entry, which sit inside links of their own (refs_as_titles). */
+.ref-title { border-bottom: 1px dotted currentColor; }
+.ref-title .ref-no {
+  font-family: var(--mono);
+  font-size: 0.7em;
+  margin-left: 0.25em;
+  color: var(--ink-faint);
+}
+
 /* [[later]]: a link still to fill in -- not broken, just waiting. */
 .note-ref-later {
   color: var(--label-fg);

@@ -505,8 +505,13 @@ title (its first line as plain text, `md.first_line_text`, cut at 80
 characters with the whole title in the tooltip) as a link to
 `/notes/<id>`, with the number small after it, so "see [[12]]" reads
 "see Spacing effect" with a small 12. A note with an empty first line shows as
-`[[12]]`. Where the result has to be plain text — backlink passages
-(§6.5), History, link text inside another link — refs stay `[[12]]`.
+`[[12]]`. Where the text sits inside a link of its own, or is plain text
+— backlink titles and passages (§6.5), History entries and their "now
+links to …", Trash rows, the Versions and graph pages' titles — a ref
+shows the same way but **as text** (`md.refs_as_titles`): the title,
+dotted underline, number small after it, no link of its own (links can't
+nest). The titles are looked up once per page, for just the refs on it.
+A ref to a missing note stays `[[12]]` there too.
 
 A ref to a note that doesn't exist or is in Trash renders as a
 **ghost** — visually distinct (dashed, muted-red underline, a `title`
@@ -678,6 +683,9 @@ Context rules:
   just the title.
 - A `[[id]]` inside inline code or a fenced code block isn't a link
   (same rule as extraction, §5), so it's never shown as a mention.
+- The highlighted mention, and any other `[[refs]]` in the passage or
+  the title line, show as their notes' titles (§6.2), so a row reads
+  "This result contradicts **Spacing effect** because of sampling".
 
 Precedent for showing context rather than titles alone: Obsidian's
 backlinks pane shows the text around each mention (truncated, with a
@@ -970,11 +978,11 @@ Layout and legibility:
   the link adjacency (undirected for traversal purposes, since "is
   connected to" should surface both incoming and outgoing neighbors).
   "Back to note" returns to the note in View.
-- **At most 300 notes** (`db.GRAPH_MAX_NODES`). If the next ring of notes
+- **At most 200 notes** (`db.GRAPH_MAX_NODES`). If the next ring of notes
   would take the graph past that, only part of the ring is shown — the
   notes with the most links to what's already drawn, then the lowest
   numbers — and the walk stops there. The toolbar then says so:
-  "Showing the nearest 300 notes; 148 more at that distance (and any
+  "Showing the nearest 200 notes; 248 more at that distance (and any
   beyond) aren't shown. Fewer hops shows a complete graph." A ring is
   never dropped in favour of a farther one, so what's shown is always
   the nearest part of the neighbourhood.
@@ -982,9 +990,9 @@ Layout and legibility:
   notes. On ten years of notes, a hub note's graph was 52 notes at 1
   hop, 448 at 2 and 2,973 at 3; the old 4- and 5-hop options drew 814
   and 4,417 notes and froze the tab for 21 s and over 10 minutes.
-  Capped, the same hub's 2- and 3-hop graphs take about 3 s to lay out
-  in Chromium (a 200-note cap would be about 1.5 s), and a typical
-  note's 3-hop graph (149 notes) under 2 s. Old `?hops=4`/`5` addresses
+  Capped at 200, the same hub's 2- and 3-hop graphs take about 1.5 s to
+  lay out in Chromium (a 300-note cap, the first choice, took about 3 s),
+  and a typical note's 3-hop graph (149 notes) under 2 s. Old `?hops=4`/`5` addresses
   show 3.
 - **Connected** means the note links out to anything — a missing or
   deleted target counts, since the graph shows it as a ghost — or a note
