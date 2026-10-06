@@ -75,3 +75,35 @@ def test_math_shows_on_the_note_page_and_its_text_is_searchable(client, app):
     page = client.get(f"/notes/{nid}").data.decode()
     assert _inline("$\\lambda$") in page
     assert "vendor/katex-0.19.0/katex.min.js" in page and "math.js" in page
+
+
+# ---------------------------------------------------------------------
+# Backlink passages (spec §6.5)
+# ---------------------------------------------------------------------
+
+def test_math_in_a_backlink_passage_is_marked_to_be_drawn_and_prices_are_not():
+    html = md.passage_html("model $p = 2^{-x}$, display $$y^2$$, costs $5 and $10, see [[3]]", {3: "Three"})
+    assert '<span class="math math-inline">$p = 2^{-x}$</span>' in html
+    assert '<span class="math math-inline">$y^2$</span>' in html          # display math drawn inline
+    assert "costs $5 and $10" in html and ">Three<" in html
+
+
+def test_a_passage_is_never_cut_through_a_formula():
+    formula = "$" + " + ".join("abcdefghijklmnop") + "$"
+    before = "word " * 40 + formula + " more words "
+    [c] = md.ref_contexts("# T\n\n" + before + "[[5]] end", 5, width=60)
+    assert c["before"] == "more words " and c["clipped_before"]
+    after = " start " + formula + " " + "word " * 40
+    [c] = md.ref_contexts("# T\n\nx [[5]]" + after, 5, width=40)
+    assert c["after"] == " start" and c["clipped_after"]
+    # A formula that fits is kept whole.
+    [c] = md.ref_contexts("# T\n\nsee $x^2$ and [[5]]", 5)
+    assert c["before"] == "see $x^2$ and "
+
+
+def test_backlink_passages_draw_math_on_the_note_page(client, app):
+    with app.app_context():
+        target = dbmod.create_note("# Target", "2026-01-01")
+        dbmod.create_note(f"# Citing\n\nfits $p = 2^{{-t}}$ as in [[{target}]]", "2026-01-02")
+    page = client.get(f"/notes/{target}").data.decode()
+    assert '<span class="math math-inline">$p = 2^{-t}$</span>' in page

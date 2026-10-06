@@ -789,6 +789,11 @@ Context rules:
   just the title.
 - A `[[id]]` inside inline code or a fenced code block isn't a link
   (same rule as extraction, §5), so it's never shown as a mention.
+- **Math** in a passage is drawn (KaTeX, §5.1), display math inline so
+  the row stays a line of text; the trim never cuts through a formula --
+  one it would split is left out. An **image** reads "Figure: <caption>".
+  A table row stays its cells joined by `|` (§5.2). Nothing else is
+  rendered: a passage is a reason for the link, not a preview.
 - The highlighted mention reads **this note**: the list sits under that
   note, so its title would only repeat on every row. Any other `[[refs]]`
   in the passage or the title line show as their notes' titles (§6.2),

@@ -47,3 +47,10 @@ def test_math_is_drawn_after_a_save(page, live):
     page.click("#done-btn")
     expect(page.locator("body")).to_have_class(re.compile(r"\bmode-view\b"))
     expect(page.locator("#view-pane .math .katex")).to_have_count(1)
+
+
+def test_math_is_drawn_in_backlink_passages(page, live):
+    target = live.note("# Target")
+    live.note(f"# Citing\n\nthe model $p = 2^{{-\\Delta/h}}$ from [[{target}]]")
+    page.goto(f"/notes/{target}")
+    expect(page.locator(".backlink-context .math .katex")).to_have_count(1)

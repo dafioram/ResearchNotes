@@ -194,3 +194,12 @@ def test_an_image_whose_file_is_gone_says_missing_and_the_note_still_works(app, 
     text = r.data.decode()
     assert "paper.pdf is missing" in text and f"uploads/{pdf['hash'][:2]}/{pdf['hash'][2:4]}/" in text
 
+
+
+def test_an_image_in_a_backlink_passage_reads_as_a_figure():
+    [c] = md.ref_contexts("# T\n\nsee ![Gull Rock layout](/files/191ff6f6b235) and [[5]]", 5)
+    assert c["before"] == "see Figure: Gull Rock layout and "
+    [c] = md.ref_contexts("# T\n\n![](/files/191ff6f6b235) [[5]]", 5)
+    assert c["before"] == "Figure "
+    [c] = md.ref_contexts("# T\n\n`![x](/files/191ff6f6b235)` [[5]]", 5)    # code stays code
+    assert c["before"] == "![x](/files/191ff6f6b235) "
