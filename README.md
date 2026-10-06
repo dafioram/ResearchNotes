@@ -302,6 +302,11 @@ push to `main`: the fast suite, the browser tests (keeping screenshots of
 any that fail), and a Docker check that builds the image, starts it, and
 saves and finds a note.
 
+**Dependabot** (`.github/dependabot.yml`) opens pull requests for new
+versions once a month: the Python packages in `requirements.txt`, the
+GitHub Actions the workflow uses, and the Docker base image. Minor and
+patch updates come grouped, one pull request per kind; CI tests each.
+
 Beyond tests of each feature, the fast suite also has:
 
 - `test_invariants.py` -- hundreds of random create / edit / trash /
