@@ -158,6 +158,8 @@ def main() -> None:
         pages = [
             ("Feed, page 1", "get", "/", {}),
             ("Feed, page 10", "get", "/?page=10", {}),
+            ("Jump to a month (redirect)", "get", "/?month=2020-06", {}),
+            (f"Jump to a month, #{label}", "get", f"/?q=%23{label}&month=2020-06", {}),
             (f"Label filter (#{label})", "get", f"/?q=%23{label}", {}),
             ("Search: common word", "get", "/?q=model", {}),
             ("Search: common word, page 10", "get", "/?q=model&page=10", {}),

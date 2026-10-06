@@ -171,9 +171,13 @@ def feed():
         # /?label=x links from before labels moved into the search box.
         return redirect(url_for("notes.feed", q=search.toggle(raw, "#" + legacy_label.lower())))
     query = search.parse(raw)
+    size = current_app.config["PAGE_SIZE"]
+
+    month = request.args.get("month")
+    if month is not None and query.in_date_order:
+        return _jump_to(raw, query, month, size)
 
     page = _requested_page()
-    size = current_app.config["PAGE_SIZE"]
     notes, total = db.search_page(query, size, (page - 1) * size)
 
     pager = _pager("notes.feed", page, total, q=raw or None)
@@ -197,9 +201,12 @@ def feed():
         {"label": label, "hint": hint, "url": toggle_url(token), "active": search.has_token(raw, token)}
         for token, label, hint in VIEWS
     ]
+    cards = _card_items(notes, db.search_snippets(query, [n["id"] for n in notes]))
     return render_template(
         "feed.html",
-        notes=_card_items(notes, db.search_snippets(query, [n["id"] for n in notes])),
+        notes=cards,
+        # newest first: grouped under day headings, and a month to jump to
+        days=_by_day(cards) if query.in_date_order else None,
         labels=labels,
         views=views,
         query=raw,
@@ -208,6 +215,46 @@ def feed():
         # a just-created note to scroll to and briefly highlight (feed.js)
         focus=request.args.get("focus", type=int),
     )
+
+
+def _jump_to(raw, query, month, size):
+    """Open the list at a month (or year): the page where its notes start,
+    at that day's heading -- or, if it has none, where the older notes
+    start. Keeps the search."""
+    bounds = search.period(month)
+    if bounds is None:
+        flash(f"Couldn’t read the month “{month}”; use YYYY-MM.")
+        return redirect(url_for("notes.feed", q=raw or None))
+    newer, day = db.date_position(query, bounds[1])
+    if day is None:  # nothing that old: the end of the list
+        last = max(1, math.ceil(newer / size))
+        return redirect(url_for("notes.feed", q=raw or None, page=last if last > 1 else None))
+    page = newer // size + 1
+    return redirect(url_for("notes.feed", q=raw or None, page=page if page > 1 else None) + f"#d-{day}")
+
+
+def day_heading(iso_date: str, today=None) -> str:
+    """'Today', 'Yesterday', 'Monday 5 October' (this year) or
+    'Monday 5 October 2025' for a YYYY-MM-DD date."""
+    today = today or datetime.now().date()
+    day = datetime.strptime(iso_date, "%Y-%m-%d").date()
+    if day == today:
+        return "Today"
+    if day == today - timedelta(days=1):
+        return "Yesterday"
+    label = f"{day:%A} {day.day} {day:%B}"  # no %-d: not on Windows
+    return label if day.year == today.year else f"{label} {day.year}"
+
+
+def _by_day(cards) -> list[dict]:
+    """Cards (already newest first) grouped by sort date, each group with
+    its heading. A day cut by a page break gets a heading on both pages."""
+    days: list[dict] = []
+    for card in cards:
+        if not days or days[-1]["date"] != card["sort_date"]:
+            days.append({"date": card["sort_date"], "heading": day_heading(card["sort_date"]), "notes": []})
+        days[-1]["notes"].append(card)
+    return days
 
 
 @bp.route("/random")
