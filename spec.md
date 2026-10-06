@@ -451,6 +451,13 @@ What is and isn't a label:
   neither — not a header (no space) and not a label (its second `#`
   follows a `#`, not whitespace) — so it renders as inert literal text.
 - A hex colour like `#fff` still reads as a label; wrap it in backticks.
+- A `#` running into a web address isn't a label: `#http://x.org` is the
+  address, which becomes a link.
+- A quote marker at the very start of a line counts as the line's start:
+  `>#idea` is a label inside the quote. (Both rules keep what's stored
+  as a label identical to what shows as one; property tests,
+  `tests/test_properties.py`, check that over thousands of generated
+  texts.)
 
 Rendering finds labels on the same text, before bold and italic run, so
 what shows as a label is exactly what's stored as one (emphasis used to

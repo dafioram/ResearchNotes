@@ -58,6 +58,7 @@ def init_db(app):
 
 
 @click.command("init-db")
+@with_appcontext
 def init_db_command():
     """Initialize the database (safe to re-run; only creates missing tables)."""
     init_db(current_app)
@@ -188,19 +189,10 @@ def _paged_notes(from_where: str, params: tuple, limit: int, offset: int):
     )
 
 
-def _list_notes_from(label: str | None):
-    if label:
-        return (
-            "FROM notes n JOIN note_labels nl ON nl.note_id = n.id "
-            "WHERE n.deleted_at IS NULL AND nl.name = ?",
-            (label.lower(),),
-        )
-    return "FROM notes n WHERE n.deleted_at IS NULL", ()
-
-
-def list_notes(label: str | None = None):
-    from_where, params = _list_notes_from(label)
-    return get_db().execute(f"SELECT n.* {from_where} {_FEED_ORDER}", params).fetchall()
+def list_notes():
+    """Every note not in Trash, in feed order (for tests and tools; pages
+    use list_notes_page)."""
+    return get_db().execute(f"SELECT n.* FROM notes n WHERE n.deleted_at IS NULL {_FEED_ORDER}").fetchall()
 
 
 def _label_match(terms) -> tuple[str, list]:
@@ -222,11 +214,9 @@ def _label_match(terms) -> tuple[str, list]:
 
 
 def list_notes_page(labels, limit: int, offset: int):
-    """A page of the feed, or of the notes carrying any of `labels` (a
-    label term or a list of them -- names, or "prefix-*" namespaces; None
-    for the whole feed). Returns (rows, total)."""
-    if isinstance(labels, str):
-        labels = [labels]
+    """A page of the feed, or of the notes carrying any of `labels` (label
+    terms -- names, or "prefix-*" namespaces; None for the whole feed).
+    Returns (rows, total)."""
     if not labels:
         return _paged_notes("FROM notes n WHERE n.deleted_at IS NULL", (), limit, offset)
     db = get_db()
@@ -644,13 +634,13 @@ def label_recency(saves: int = 1000) -> dict[str, str]:
     used in that stretch aren't included."""
     rows = get_db().execute(
         """
-        SELECT nl.name, MAX(a.t) FROM (
+        SELECT nl.name, MAX(latest.t) FROM (
             SELECT note_id, MAX(updated_at) AS t FROM (
                 SELECT note_id, updated_at FROM activity
                 WHERE kind IN ('created', 'edited')
                 ORDER BY updated_at DESC, id DESC LIMIT ?)
-            GROUP BY note_id) a
-        JOIN note_labels nl ON nl.note_id = a.note_id
+            GROUP BY note_id) latest
+        JOIN note_labels nl ON nl.note_id = latest.note_id
         GROUP BY nl.name
         """,
         (saves,),

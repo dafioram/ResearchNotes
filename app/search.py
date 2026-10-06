@@ -120,9 +120,15 @@ def _period_start(text: str) -> str | None:
     return bounds[0] if bounds else None
 
 
+# Control characters can't be typed into a search and mean nothing in one;
+# a NUL in particular made FTS5 fail ("unterminated string"), which a
+# property test found. Tabs and newlines are whitespace, so they stay.
+_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+
+
 def parse(raw: str) -> Query:
     q = Query()
-    raw = (raw or "").strip()
+    raw = _CONTROL_RE.sub("", raw or "").strip()
     if raw.isdigit():
         q.number = raw
         q.words.append(_phrase(raw))
