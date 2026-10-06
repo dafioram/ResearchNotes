@@ -558,6 +558,27 @@ a:hover { color: var(--ink); }
   color: inherit;
 }
 
+/* Tables (spec §5.2): a wide one scrolls sideways within the note. */
+.note-table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  margin: 1em 0;
+  font-size: 0.95em;
+}
+.note-table th,
+.note-table td {
+  border: 1px solid var(--rule);
+  padding: 5px 10px;
+  vertical-align: top;
+  text-align: left;
+}
+.note-table th { background: var(--paper); font-weight: 600; }
+.note-table tbody tr:nth-child(even) td { background: rgba(231, 228, 218, 0.35); }
+.note-table .align-right { text-align: right; font-variant-numeric: tabular-nums; }
+.note-table .align-center { text-align: center; }
+
 .note-body del { color: var(--ink-faint); }
 
 .note-ref {

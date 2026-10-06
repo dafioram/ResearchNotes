@@ -1,7 +1,7 @@
 /*
  * The note page (note.html): View / Edit switch, saving in place, Done and
  * Cancel, the unsaved-changes guard, suggestions for [[links and
- * #labels while typing, and attachments.
+ * #labels while typing, pasted cells made into tables, and attachments.
  *
  * Saving never leaves the page. Save and Ctrl+S save and keep editing;
  * Done, and flipping the switch to View, save and then show View. On a
@@ -732,6 +732,116 @@
 
   // Opening a page in Edit mode puts the cursor in the editor.
   if (mode() === "edit") textarea.focus({ preventScroll: true });
+
+  // ------------------------------------------------------------------
+  // Pasting cells makes a table (spec §5.2). Spreadsheets copy cells as
+  // tab-separated text; exported data is often comma-separated. Either
+  // becomes a pipe table when it has two or more rows of the same number
+  // of cells (two or more), none empty in the first row -- and, with
+  // commas, no cell starting with a space, which is how prose ("Hello,
+  // world") differs from data. Not inside a ``` code block. The paste
+  // goes in as it was first and the table then replaces it, so Ctrl+Z
+  // gives back exactly what was pasted.
+  // ------------------------------------------------------------------
+
+  // Rows of cells; quoted cells may hold the separator, "" or a newline.
+  function parseDelimited(text, sep) {
+    var rows = [], row = [], cell = "", quoted = false, inQuotes = false, spaced = false;
+    function endCell() {
+      if (!quoted && cell.charAt(0) === " ") spaced = true;
+      row.push(cell);
+      cell = "";
+      quoted = false;
+    }
+    for (var i = 0; i < text.length; i++) {
+      var ch = text.charAt(i);
+      if (inQuotes) {
+        if (ch !== '"') cell += ch;
+        else if (text.charAt(i + 1) === '"') { cell += '"'; i++; }
+        else inQuotes = false;
+      } else if (ch === '"' && cell === "") {
+        inQuotes = quoted = true;
+      } else if (ch === sep) {
+        endCell();
+      } else if (ch === "\n") {
+        endCell();
+        rows.push(row);
+        row = [];
+      } else {
+        cell += ch;
+      }
+    }
+    if (inQuotes) return null;  // an unclosed quote: not data
+    endCell();
+    rows.push(row);
+    return { rows: rows, spaced: spaced };
+  }
+
+  var NUMBER = /^[-+−]?[\d.,]+%?$/;
+
+  function pipeTable(rows) {
+    var cells = rows.map(function (row) {
+      return row.map(function (c) { return c.replace(/\s*\n\s*/g, " ").trim().replace(/\|/g, "\\|"); });
+    });
+    var width = cells[0].length;
+    var widths = [], numeric = [];
+    for (var col = 0; col < width; col++) {
+      var w = 3, isNumber = false, allNumbers = true;
+      cells.forEach(function (row, r) {
+        w = Math.max(w, row[col].length);
+        if (r === 0 || row[col] === "") return;
+        if (NUMBER.test(row[col])) isNumber = true; else allNumbers = false;
+      });
+      widths.push(w);
+      numeric.push(isNumber && allNumbers);  // numbers line up on the right
+    }
+    function line(row) {
+      return "| " + row.map(function (c, col) {
+        return numeric[col] ? " ".repeat(widths[col] - c.length) + c : c + " ".repeat(widths[col] - c.length);
+      }).join(" | ") + " |";
+    }
+    var rule = "|" + widths.map(function (w, col) {
+      return numeric[col] ? "-".repeat(w + 1) + ":" : "-".repeat(w + 2);
+    }).join("|") + "|";
+    return [line(cells[0]), rule].concat(cells.slice(1).map(line)).join("\n");
+  }
+
+  function tableFromPaste(text) {
+    if (text.indexOf("\n") < 0) return null;
+    var sep = text.indexOf("\t") >= 0 ? "\t" : ",";
+    var parsed = parseDelimited(text, sep);
+    if (!parsed || (sep === "," && parsed.spaced)) return null;
+    var rows = parsed.rows, width = rows[0].length;
+    if (rows.length < 2 || width < 2) return null;
+    if (rows[0].some(function (c) { return c.trim() === ""; })) return null;
+    if (rows.some(function (row) { return row.length !== width; })) return null;
+    return pipeTable(rows);
+  }
+
+  function insertText(text) {
+    // insertText keeps the editor's undo history; setRangeText is the fallback.
+    if (!document.execCommand("insertText", false, text)) {
+      textarea.setRangeText(text, textarea.selectionStart, textarea.selectionEnd, "end");
+      refreshStatus();
+    }
+  }
+
+  textarea.addEventListener("paste", function (e) {
+    if (!e.clipboardData) return;
+    var text = e.clipboardData.getData("text/plain").replace(/\r\n?/g, "\n").replace(/\n+$/, "");
+    var start = textarea.selectionStart, before = textarea.value.slice(0, start);
+    if ((before.match(/```/g) || []).length % 2) return;   // inside a code block
+    var table = tableFromPaste(text);
+    if (!table) return;
+    e.preventDefault();
+    var after = textarea.value.slice(textarea.selectionEnd);
+    insertText(text);                                       // as pasted: the undo step back
+    textarea.setSelectionRange(start, start + text.length);
+    // The table on lines of its own, ended by a blank line.
+    var lead = before === "" || /\n$/.test(before) ? "" : "\n";
+    var trail = after === "" || /^\n\n/.test(after) ? "" : /^\n/.test(after) ? "\n" : "\n\n";
+    insertText(lead + table + trail);
+  });
 
   // ------------------------------------------------------------------
   // Attachments: drop files anywhere on the page while editing.

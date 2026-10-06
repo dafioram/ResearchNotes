@@ -396,9 +396,10 @@ Hand-rolled, not CommonMark. Supported:
 | `---` / `***` / `___` | `<hr>` |
 | blank-line-separated paragraphs; single `\n` | `<p>`; `<br>` |
 | `$x^2$` / `$$…$$` | math, drawn by KaTeX (§5.1) |
+| `\| a \| b \|` + `\|---\|--:\|` + rows | `<table>` (§5.2) |
 
 Deliberately **not** supported: image syntax (`![]()` — attachments are
-a separate, non-inline feature, §9), tables, raw HTML passthrough
+a separate, non-inline feature, §9), raw HTML passthrough
 (everything is HTML-escaped first, so the table above is genuinely the
 entire vocabulary available — there is no way to smuggle a `<script>`
 tag through a note body).
@@ -471,6 +472,52 @@ TeX between dollar signs, the way most research writing tools take it:
   History and the graph show `$e^{-t/S}$` as typed. Search indexes the
   note as typed, so `lambda` finds `$\lambda$`.
 
+### 5.2 Tables
+
+Pipe tables, as in GitHub, pandoc and Obsidian, so they paste in from
+other tools and copy back out unchanged:
+
+```
+| Model | Accuracy | Notes        |
+|:------|---------:|--------------|
+| Base  |     0.81 | see [[12]]   |
+| +aug  | **0.86** | $p < 0.01$   |
+```
+
+- **A header row, then a separator row** of dashes with as many cells,
+  then rows. The separator is required, so a stray `|` in prose never
+  makes a table. Outer pipes and spacing are optional (`A | B` / `--- |
+  ---` works).
+- **Alignment** from colons in the separator: `:---` left, `---:` right
+  (numbers line up), `:---:` centered. Shown as `class="align-…"` on each
+  cell, not a style attribute.
+- **Cells** hold inline markdown: emphasis, code, math, links, `#labels`
+  and `[[refs]]`, which count like anywhere else. `\|` is a literal pipe;
+  a `|` inside code or math never splits a cell, since those are set
+  aside first.
+- **Rows** run until a blank line or another block (header, list, quote,
+  rule, code block, another table). A row with too few cells is padded,
+  one with too many is cut, to the header's width. No merged cells and no
+  line breaks inside a cell -- a deliberate limit, shared with the other
+  tools.
+- **A table ends a paragraph**: a line of text right above the header
+  row is its own paragraph.
+- A wide table scrolls sideways inside the note.
+- **Backlinks**: a `[[ref]]` in a cell shows its row as the passage, the
+  cells joined by `|` ("Base | see [[12]]"), not the whole table (§6.5).
+- **Pasting** (the editor, `app.js`): cells copied from a spreadsheet
+  arrive as tab-separated text, and exported data is often
+  comma-separated. Either becomes a pipe table -- columns padded to line
+  up, columns of numbers right-aligned, `|` in a cell escaped, line
+  breaks in a cell made spaces -- when it has two or more rows of the
+  same number of cells (two or more), none empty in the first row.
+  Quoted cells (`"Smith, J."`, `"two\nlines"`) are read as one. With
+  commas, no unquoted cell may start with a space: that's how prose
+  ("Hello, world") differs from data (`Model,Accuracy`). Never inside a
+  ` ``` ` code block. The table goes on lines of its own, ended by a
+  blank line. The paste goes in as it was first and the table then
+  replaces it, so **Ctrl+Z gives back exactly what was pasted**.
+
 ## 6. Labels and note references
 
 ### 6.1 `#label`
@@ -495,6 +542,9 @@ What is and isn't a label:
 - A hex colour like `#fff` still reads as a label; wrap it in backticks.
 - A `#` running into a web address isn't a label: `#http://x.org` is the
   address, which becomes a link.
+- A `|` counts like whitespace before a label, so a table cell written
+  without spaces, `|#baseline|`, holds the label `#baseline` (§5.2). The
+  same goes outside tables: `a|#b` is a label.
 - A quote marker at the very start of a line counts as the line's start:
   `>#idea` is a label inside the quote. (Both rules keep what's stored
   as a label identical to what shows as one; property tests,
