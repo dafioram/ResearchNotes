@@ -82,17 +82,37 @@ def _card_items(notes, matches=None):
     ]
 
 
+def _titled(texts):
+    """A function showing plain text with its [[refs]] as their notes'
+    titles (md.refs_as_titles), the titles looked up once for every ref in
+    `texts` -- just those, never every note."""
+    titles = db.note_titles({int(i) for t in texts for i in md.NOTE_REF_RE.findall(t)})
+    return lambda text: md.refs_as_titles(text, titles)
+
+
+def _title_line(body):
+    """A note's first line, as a title, with its [[refs]] as titles too."""
+    text = md.first_line_text(body) or "(empty note)"
+    return _titled([text])(text)
+
+
 def _backlink_items(note_id):
     """Each note linking to `note_id`: its first line as a title, plus the
-    passage around every mention of [[note_id]] in it (why it links here)."""
+    passage around every mention of [[note_id]] in it (why it links here).
+    [[refs]] in both show as their notes' titles."""
+    rows = [(b, md.first_line_text(b["body"]), md.ref_contexts(b["body"], note_id))
+            for b in db.get_backlinks(note_id)]
+    titled = _titled([f"[[{note_id}]]"] + [t for _, text, mentions in rows
+                     for t in [text] + [m["before"] + m["after"] for m in mentions]])
     return [
         {
             "id": b["id"],
             "sort_date": b["sort_date"],
-            "text": md.first_line_text(b["body"]),
-            "mentions": md.ref_contexts(b["body"], note_id),
+            "text": titled(text),
+            "mentions": [{**m, "before": titled(m["before"]), "ref": titled(m["ref"]),
+                          "after": titled(m["after"])} for m in mentions],
         }
-        for b in db.get_backlinks(note_id)
+        for b, text, mentions in rows
     ]
 
 
@@ -326,6 +346,9 @@ def _history_days(rows) -> list:
     "Today", "Yesterday", then "Monday 21 September 2026"."""
     today = datetime.now().astimezone().date()
     days: list = []
+    described = {r["id"]: activity.describe(r["kind"], r["detail"], r["save_count"]) for r in rows}
+    title_of = {r["id"]: md.first_line_text(r["note_body"]) or "(empty note)" for r in rows}
+    titled = _titled(list(title_of.values()) + [c for d in described.values() for c in d["changes"]])
     for r in rows:
         local = datetime.fromisoformat(r["updated_at"]).astimezone()
         day = local.date()
@@ -339,12 +362,13 @@ def _history_days(rows) -> list:
             "kind": r["kind"],
             "time": activity.clock_time(local),
             "note_id": r["note_id"],
-            "title": md.first_line_text(r["note_body"]) or "(empty note)",
+            "title": titled(title_of[r["id"]]),
             "in_trash": r["note_deleted_at"] is not None,
             # the note as it was before this edit (spec §11.5)
             "version_url": (url_for("notes.note_version", note_id=r["note_id"], version_id=r["id"])
                             if r["has_version"] and r["note_deleted_at"] is None else None),
-            **activity.describe(r["kind"], r["detail"], r["save_count"]),
+            **described[r["id"]],
+            "changes": [titled(c) for c in described[r["id"]]["changes"]],
         }
         if not days or days[-1]["heading"] != heading:
             days.append({"heading": heading, "items": []})
@@ -363,10 +387,12 @@ def trash():
     # Timestamps are stored in UTC; show the deletion date in the local
     # time of the machine running the app, which for this desktop app is
     # the user's own.
+    titles = {n["id"]: md.first_line_text(n["body"]) or "(empty note)" for n in rows}
+    titled = _titled(list(titles.values()))
     notes = [
         {
             "id": n["id"],
-            "title": md.first_line_text(n["body"]) or "(empty note)",
+            "title": titled(titles[n["id"]]),
             "line_count": md.line_count(n["body"]),
             "deleted_on": _local_date(n["deleted_at"]),
         }
@@ -591,7 +617,7 @@ def note_versions(note_id):
     return render_template(
         "versions.html",
         note=_note_view_model(row),
-        title=md.first_line_text(row["body"]) or "(empty note)",
+        title=_title_line(row["body"]),
         updated=activity.local_stamp(row["updated_at"]),
         versions=[_version_item(note_id, v) for v in db.note_versions(note_id)],
     )
@@ -659,7 +685,7 @@ def graph_ego(note_id):
         center=note_id,
         hops=hops,
         max_hops=db.GRAPH_MAX_HOPS,
-        title=md.first_line_text(row["body"]) or "(empty note)",
+        title=_title_line(row["body"]),
         has_connections=db.note_has_connections(note_id),
     )
 

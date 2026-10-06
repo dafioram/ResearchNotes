@@ -160,3 +160,49 @@ def test_lookup_leaves_out_the_note_being_edited(client, notes):
 def test_lookup_never_errors_on_odd_input(client, notes):
     for q in ['"', "%22unclosed", "-", "NEAR(", "%23", "later%3A"]:
         assert client.get(f"/api/notes/lookup?q={q}").status_code == 200
+
+
+# ---------------------------------------------------------------------
+# [[refs]] in plain text -- title lines, backlink passages, History,
+# Trash -- shown as their notes' titles too
+# ---------------------------------------------------------------------
+
+def test_refs_as_titles_escapes_and_leaves_missing_notes_alone():
+    html = str(md.refs_as_titles("a <b> [[3]] and [[4]] & [[later]]", {3: 'Say "hi" <now>'}))
+    assert html.startswith("a &lt;b&gt; ")
+    assert ('<span class="ref-title" title="No. 3: Say &#34;hi&#34; &lt;now&gt;">'
+            'Say &#34;hi&#34; &lt;now&gt;<span class="ref-no">3</span></span>') in html
+    assert "[[4]] &amp; [[later]]" in html
+
+
+def test_other_refs_in_a_backlink_passage_show_titles(client, app):
+    with app.app_context():
+        target = dbmod.create_note("# Target", "2026-01-01")
+        other = dbmod.create_note("# Other idea", "2026-01-01")
+        dbmod.create_note(f"# Source\n\nsee [[{target}]] next to [[{other}]] and [[999]]", "2026-01-01")
+    body = client.get(f"/notes/{target}").data.decode()
+    passage = body.split('class="backlink-context">')[1].split("</span>\n")[0]
+    assert f'Other idea<span class="ref-no">{other}</span>' in passage
+    assert "[[999]]" in passage                      # a missing note stays a number
+
+
+def test_history_and_trash_titles_show_ref_titles(client, app):
+    with app.app_context():
+        target = dbmod.create_note("# Target", "2026-01-01")
+        follow = dbmod.create_note(f"# Follow-up to [[{target}]]", "2026-01-01")
+        dbmod.update_note(follow, f"# Follow-up to [[{target}]]\n\nmore", "2026-01-01")
+    history = client.get("/history").data.decode()
+    assert f'Follow-up to <span class="ref-title" title="No. {target}: Target">' in history
+    with app.app_context():
+        dbmod.soft_delete_note(follow)
+    trash = client.get("/trash").data.decode()
+    assert f'<span class="trash-title">Follow-up to <span class="ref-title"' in trash
+
+
+def test_versions_and_graph_titles_show_ref_titles(client, app):
+    with app.app_context():
+        target = dbmod.create_note("# Target", "2026-01-01")
+        follow = dbmod.create_note(f"# Follow-up to [[{target}]]", "2026-01-01")
+    expected = f'Follow-up to <span class="ref-title" title="No. {target}: Target">Target'
+    assert expected in client.get(f"/notes/{follow}/versions").data.decode()
+    assert expected in client.get(f"/graph/{follow}").data.decode()

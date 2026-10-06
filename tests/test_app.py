@@ -669,7 +669,8 @@ def test_backlink_rows_never_nest_links(client, app):
 
     for url in [f"/notes/{target}", f"/notes/{target}/fragment"]:
         body = client.get(url).data.decode()
-        assert "About #physics and [[" in body  # plain-text snippet
+        # plain text, with the ref shown as its note's title -- as text
+        assert f'About #physics and <span class="ref-title" title="No. {target}: Target">Target' in body
         assert _NestedLinkChecker(body).nested == 0, url
 
 
@@ -872,7 +873,9 @@ def test_backlink_rows_show_link_context(client, app):
         body = client.get(url).data.decode()
         assert "Citing note" in body  # title line still shown
         assert "This result contradicts " in body
-        assert f'<mark class="backlink-ref">[[{target}]]</mark>' in body
+        # the mention of this note, by its title
+        assert (f'<mark class="backlink-ref"><span class="ref-title" title="No. {target}: Target">'
+                f'Target<span class="ref-no">{target}</span></span></mark>') in body
         assert " because of sampling." in body
         assert _NestedLinkChecker(body).nested == 0
 

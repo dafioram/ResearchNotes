@@ -257,7 +257,10 @@ def test_history_entry_wording(app, client, clock):
     body = client.get("/history").data.decode()
     assert 'class="history-verb">Edited</span>' in body
     assert f'<a class="history-note" href="/notes/{note_id}"><span class="history-no">No. {note_id}</span> Source</a>' in body
-    for change in ["+1 line", "added #idea", f"now links to [[{target}]]"]:
+    for change in ["+1 line", "added #idea",
+                   # the linked note by its title, number small after it
+                   f'now links to <span class="ref-title" title="No. {target}: Target">Target'
+                   f'<span class="ref-no">{target}</span></span>']:
         assert f'<span class="change">{change}</span>' in body
 
 

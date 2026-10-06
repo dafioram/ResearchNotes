@@ -1,4 +1,4 @@
-"""The graph's limits (spec §10): at most 3 hops, at most ~300 notes."""
+"""The graph's limits (spec §10): at most 3 hops, at most 200 notes."""
 
 from app import db as dbmod
 
@@ -60,3 +60,11 @@ def test_a_small_graph_is_not_cut(app):
 def test_page_has_a_place_for_the_message(client, app):
     centre, _, _ = _star(app, 2)
     assert 'id="graph-capped" hidden' in client.get(f"/graph/{centre}").data.decode()
+
+
+def test_the_default_cap_is_200(app):
+    centre, inner, outer = _star(app, 210)
+    with app.app_context():
+        data = dbmod.get_graph_data(centre, hops=1)
+    assert dbmod.GRAPH_MAX_NODES == 200
+    assert len(data["nodes"]) == 200 and data["left_out"] == 11

@@ -31,7 +31,8 @@ def test_a_graph_past_the_cap_says_what_it_left_out(page, live):
     page.goto(f"/graph/{hub}")
     capped = page.locator("#graph-capped")
     expect(capped).to_be_visible(timeout=15000)
-    expect(capped).to_have_text(re.compile(r"^Showing the nearest 300 notes; 6 more at that distance"))
+    expect(capped).to_have_text(re.compile(
+        rf"^Showing the nearest {dbmod.GRAPH_MAX_NODES} notes; 6 more at that distance"))
 
 
 def test_unconnected_note_has_a_greyed_graph_button(page, live):
