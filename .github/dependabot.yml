@@ -1,0 +1,32 @@
+# Dependabot: pull requests for new versions of what the app and CI use.
+# Monthly, with minor and patch updates grouped into one pull request per
+# kind, so it stays quiet; CI (tests.yml) checks every one of them.
+version: 2
+updates:
+  - package-ecosystem: pip            # requirements.txt (pinned: Flask, Werkzeug, python-dotenv)
+    directory: "/"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    groups:
+      python-packages:
+        update-types: [minor, patch]
+    commit-message:
+      prefix: "deps"
+
+  - package-ecosystem: github-actions # actions used in .github/workflows
+    directory: "/"
+    schedule:
+      interval: monthly
+    groups:
+      github-actions:
+        update-types: [minor, patch]
+    commit-message:
+      prefix: "ci"
+
+  - package-ecosystem: docker         # the Dockerfile's python:3.x-slim base image
+    directory: "/"
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "docker"
