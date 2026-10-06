@@ -137,10 +137,19 @@ tables, which behave the same.
   after the month in SQL (`db.date_position`, 3–9 ms on ten years of
   notes). Each entry is a card showing a stamped meta row
   (`No. <id>` / sort date / line count, plus `N files` when it has
-  attachments, §9.4, and `N backlinks` when other notes reference it,
-  §6.5 — each badge omitted entirely when its count is zero) and a
+  attachments, §9.4, and `links 3 → · 20 ←` -- the notes it links to and
+  the notes linking to it, §6.5, each part only when non-zero, the whole
+  badge omitted when both are -- with its **labels as chips** at the
+  right of the header and a
   **snippet**: the rendered markdown of just the note's first non-blank
   line (typically a header, since that's what a header is for).
+  The chips are the note's labels A–Z, less any already in the title
+  line; three at most, then `+N` (the rest on hover). A chip is a link to
+  that label's filter, like the sidebar's. They answer "what is this
+  note about?" without opening it -- a count ("3 labels") wouldn't.
+  Links out count only notes that exist and aren't in Trash (the ones a
+  note shows as titles, not ghosts). Both come from one grouped query
+  per page (`db.get_link_counts`, `db.get_card_labels`).
 - Clicking a card **expands it in place** to the full rendered note,
   its attachments, and its backlinks (fetched once from
   `/notes/<id>/fragment` — a bare HTML fragment, no page chrome — then
@@ -750,7 +759,7 @@ places:
   followed by "N more — see all on the note's page" when there are more.
   The cap keeps a heavily-linked hub note from turning one expanded card
   into a wall of hundreds of rows in the middle of the feed.
-- **A badge on every card** (`N backlinks`), counted with one grouped
+- **A badge on every card** (the `N ←` in `links 3 → · N ←`, §4), counted with one grouped
   query for the notes on the page (`db.get_backlink_counts(ids)`), not
   one per card and not for every note. The
   count is defined identically to the list — non-deleted referencing

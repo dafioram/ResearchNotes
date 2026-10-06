@@ -686,6 +686,42 @@ def get_backlink_counts(note_ids) -> dict:
     return counts
 
 
+def get_link_counts(note_ids) -> dict:
+    """note_id -> number of notes it links to, for those of `note_ids`
+    that link to any: the card's "N →" (spec §4). Only notes that exist
+    and aren't in Trash count -- the links that show as titles, not as
+    ghosts."""
+    db = get_db()
+    counts: dict = {}
+    for chunk in _chunks(note_ids):
+        counts.update(
+            (r["note_id"], r["c"]) for r in db.execute(
+                f"""
+                SELECT l.from_note_id AS note_id, COUNT(*) AS c FROM note_links l
+                JOIN notes n ON n.id = l.to_note_id AND n.deleted_at IS NULL
+                WHERE l.from_note_id IN ({_marks(chunk)})
+                GROUP BY l.from_note_id
+                """,
+                chunk,
+            )
+        )
+    return counts
+
+
+def get_card_labels(note_ids) -> dict:
+    """note_id -> its label names, A-Z, for those of `note_ids` with any:
+    the chips on a card (spec §4). One query for the page's notes."""
+    db = get_db()
+    labels: dict = {}
+    for chunk in _chunks(note_ids):
+        for r in db.execute(
+            f"SELECT note_id, name FROM note_labels WHERE note_id IN ({_marks(chunk)}) ORDER BY note_id, name",
+            chunk,
+        ):
+            labels.setdefault(r["note_id"], []).append(r["name"])
+    return labels
+
+
 # ---------------------------------------------------------------------------
 # Graph
 # ---------------------------------------------------------------------------
