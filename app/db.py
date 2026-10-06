@@ -54,6 +54,7 @@ def init_db(app):
     app.teardown_appcontext(close_db)
     app.cli.add_command(init_db_command)
     app.cli.add_command(reindex_command)
+    app.cli.add_command(prune_files_command)
 
 
 @click.command("init-db")
@@ -77,6 +78,15 @@ def reindex_command(vacuum):
     if vacuum:
         get_db().execute("VACUUM")
         click.echo("Compacted the database file.")
+
+
+@click.command("prune-files")
+@with_appcontext
+def prune_files_command():
+    """Delete uploaded files that no note uses (spec §9.2)."""
+    rows, files = prune_files()
+    click.echo(f"Removed {rows} unused attachment record{'' if rows == 1 else 's'} and "
+               f"{files} file{'' if files == 1 else 's'} from {current_app.config['UPLOAD_DIR']}.")
 
 
 def now_iso() -> str:
@@ -346,11 +356,38 @@ def search_snippets(q, note_ids) -> dict:
     return out
 
 
-def list_deleted_notes():
+def deleted_notes_page(limit: int, offset: int):
+    """One page of Trash, most recently deleted first. Returns (rows, total)."""
+    return _paged(
+        "SELECT * FROM notes WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC, id DESC",
+        "SELECT COUNT(*) FROM notes WHERE deleted_at IS NOT NULL",
+        (), limit, offset,
+    )
+
+
+def delete_forever(note_ids=None) -> int:
+    """Delete notes in Trash for good -- `note_ids`, or all of Trash when
+    None; notes not in Trash are left alone. Their History entries and
+    versions go with them (ON DELETE CASCADE); links to them from other
+    notes stay, as ghosts (§6.2), and their numbers are never reused.
+    Files no note uses any more are deleted too. Returns how many notes
+    were deleted."""
     db = get_db()
-    return db.execute(
-        "SELECT * FROM notes WHERE deleted_at IS NOT NULL ORDER BY deleted_at DESC"
-    ).fetchall()
+    if note_ids is None:
+        ids = [r[0] for r in db.execute("SELECT id FROM notes WHERE deleted_at IS NOT NULL")]
+    else:
+        ids = [int(i) for i in note_ids]
+    deleted, attachment_ids = 0, set()
+    for chunk in _chunks(ids):
+        attachment_ids.update(r[0] for r in db.execute(
+            f"SELECT attachment_id FROM note_attachments WHERE note_id IN ({_marks(chunk)})", chunk))
+        deleted += db.execute(
+            f"DELETE FROM notes WHERE deleted_at IS NOT NULL AND id IN ({_marks(chunk)})", chunk
+        ).rowcount
+    files = _forget_unused_attachments(db, attachment_ids)
+    db.commit()
+    _remove_files(files)
+    return deleted
 
 
 def soft_delete_note(note_id: int) -> None:
@@ -743,9 +780,79 @@ def unlink_attachment(note_id: int, attachment_id: int) -> None:
         "DELETE FROM note_attachments WHERE note_id = ? AND attachment_id = ?",
         (note_id, attachment_id),
     )
+    files = []
     if cur.rowcount:
         _log_attachment_event("detached", note_id, attachment_id)
+        files = _forget_unused_attachments(db, [attachment_id])
     db.commit()
+    _remove_files(files)
+
+
+def attachment_path(file_hash: str, extension: str) -> Path:
+    """Where an uploaded file is stored: UPLOAD_DIR/ab/cd/abcd...ext (§9.2)."""
+    upload_dir = Path(current_app.config["UPLOAD_DIR"])
+    return upload_dir / file_hash[:2] / file_hash[2:4] / f"{file_hash}{extension}"
+
+
+def _forget_unused_attachments(db, attachment_ids) -> list[Path]:
+    """Delete the records of those of `attachment_ids` that no note links to
+    any more -- in Trash or not, since restoring brings links back -- and
+    return their files, to remove once the change is committed. Only the
+    files just unlinked are checked, never every file, so an upload that's
+    stored its file but not linked it yet is never caught out."""
+    files: list[Path] = []
+    for chunk in _chunks(list(attachment_ids)):
+        unused = db.execute(
+            f"""
+            SELECT id, hash, extension FROM attachments a
+            WHERE id IN ({_marks(chunk)})
+              AND NOT EXISTS (SELECT 1 FROM note_attachments na WHERE na.attachment_id = a.id)
+            """,
+            chunk,
+        ).fetchall()
+        files.extend(attachment_path(r["hash"], r["extension"]) for r in unused)
+        gone = [r["id"] for r in unused]
+        if gone:
+            db.execute(f"DELETE FROM attachments WHERE id IN ({_marks(gone)})", gone)
+    return files
+
+
+def _remove_files(paths) -> int:
+    """Delete files (already forgotten by the database), and the two levels
+    of folders above each if that leaves them empty. Returns how many were
+    deleted; one that's already gone is fine."""
+    removed = 0
+    for path in paths:
+        try:
+            path.unlink()
+            removed += 1
+        except FileNotFoundError:
+            pass
+        for folder in (path.parent, path.parent.parent):
+            try:
+                folder.rmdir()   # only succeeds if empty
+            except OSError:
+                break
+    return removed
+
+
+def prune_files() -> tuple[int, int]:
+    """Clean up files no note uses: attachment records with no links (left
+    by versions before files were deleted with their last link), and files
+    in UPLOAD_DIR with no record (an upload that failed half-way). Returns
+    (records removed, files deleted)."""
+    db = get_db()
+    unused = [r[0] for r in db.execute(
+        "SELECT id FROM attachments a WHERE NOT EXISTS "
+        "(SELECT 1 FROM note_attachments na WHERE na.attachment_id = a.id)"
+    )]
+    files = _forget_unused_attachments(db, unused)
+    db.commit()
+    removed = _remove_files(files)
+    known = {r[0] for r in db.execute("SELECT hash FROM attachments")}
+    upload_dir = Path(current_app.config["UPLOAD_DIR"])
+    strays = [p for p in upload_dir.glob("??/??/*") if p.is_file() and p.name[:64] not in known]
+    return len(unused), removed + _remove_files(strays)
 
 
 def _log_attachment_event(kind: str, note_id: int, attachment_id: int) -> None:

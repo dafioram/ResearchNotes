@@ -326,36 +326,28 @@ def test_attachment_dedupes_by_hash(client, app):
         assert all_attachments == 1  # same hash -> single stored file, linked twice
 
 
-def test_remove_attachment_unlinks_but_keeps_file(client, app):
+def test_remove_attachment_unlinks_and_deletes_a_file_nothing_else_uses(client, app):
     with app.app_context():
         note_id = dbmod.create_note("note", "2026-01-01")
 
     client.post(
         f"/notes/{note_id}/attachments/upload",
-        data={"file": (io.BytesIO(b"content here"), "keepme.txt")},
+        data={"file": (io.BytesIO(b"content here"), "goodbye.txt")},
         content_type="multipart/form-data",
     )
     with app.app_context():
-        from app import db as d
-        attachment_id = d.get_db().execute("SELECT id FROM attachments").fetchone()["id"]
+        row = dbmod.get_db().execute("SELECT id, hash, extension FROM attachments").fetchone()
+        path = dbmod.attachment_path(row["hash"], row["extension"])
+    assert path.exists()
 
-    client.post(f"/notes/{note_id}/attachments/{attachment_id}/remove")
+    client.post(f"/notes/{note_id}/attachments/{row['id']}/remove")
 
     client.get(f"/notes/{note_id}")  # flush queued flash messages first
-    resp = client.get(f"/notes/{note_id}")
-    assert b"keepme.txt" not in resp.data
-
+    assert b"goodbye.txt" not in client.get(f"/notes/{note_id}").data
     with app.app_context():
-        from app import db as d
-        still_exists = d.get_db().execute(
-            "SELECT COUNT(*) c FROM attachments WHERE id = ?", (attachment_id,)
-        ).fetchone()["c"]
-        assert still_exists == 1
-
-
-# ---------------------------------------------------------------------
-# Feed search
-# ---------------------------------------------------------------------
+        assert dbmod.get_db().execute("SELECT COUNT(*) FROM attachments").fetchone()[0] == 0
+    assert not path.exists()
+    assert not path.parent.exists()   # its emptied folders go too
 
 def _insert_note_with_id(app, note_id, body, sort_date="2026-01-01"):
     """Insert a note with an explicit id, bypassing AUTOINCREMENT, so

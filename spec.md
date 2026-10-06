@@ -142,8 +142,19 @@ tables, which behave the same.
   untouched, so restoring it brings every link back exactly as it was.
   Its own labels, links and search entry are removed while it's in
   Trash and re-read from its text when it's restored (§3).
-  A **Trash** view (`/trash`) lists deleted notes with a Restore action
-  that clears `deleted_at`.
+  A **Trash** view (`/trash`) lists deleted notes, most recently deleted
+  first and paginated like the feed (§4.2): each row shows the note's
+  number, title (first line), line count and deletion date, with
+  **Restore** (clears `deleted_at`) and **Delete permanently**. **Empty
+  Trash** in the sidebar deletes them all. Both ask first ("This can't
+  be undone").
+- **Deleting permanently** removes the note row; its History entries and
+  versions (§11) go with it (`ON DELETE CASCADE`), as do its file links
+  — and any file no other note uses, in Trash or not, is deleted from
+  disk (§9.2). Links to it from other notes stay, rendering as ghosts
+  (§6.2), and its number is never reused (`AUTOINCREMENT`), so a ghost
+  can't later point at an unrelated note. Only notes already in Trash
+  can be deleted permanently.
 
 Every list of notes is the feed, with or without a search (§7): what
 used to be separate Orphans and Attachments pages are now the filters
@@ -192,7 +203,7 @@ note, Random, History, Trash (Graph is reached from a note).
 
 ### 4.2 Pagination
 
-The feed — searched or not — is paginated, **not** infinite-
+The feed — searched or not — and Trash are paginated, **not** infinite-
 scroll: `PAGE_SIZE` notes per page (default 50, configurable, §13),
 selected with `?page=N`. Page 1 has a clean URL (no `page` param).
 
@@ -736,10 +747,16 @@ never needs to re-derive it later, and `mime_type` (also captured at
 upload time) is the source of truth for the `Content-Type` header when
 serving the file back.
 
-Deleting a note, or unlinking an attachment from a note, never deletes
-the underlying file — it might still be linked from another note, and
-disk cleanup for fully-orphaned attachment files is out of scope (not a
-problem at this app's scale; see §12).
+A file is deleted from disk (with its `attachments` row, and its two
+folders if that leaves them empty) as soon as no note uses it: when it's
+removed from its last note, or its last note is deleted permanently
+(§4). A note in Trash still counts as using its files, since restoring
+it brings them back. Only the files just unlinked are checked — never a
+sweep of every file — so an upload that has written its file but not
+linked it yet can't lose it. **`flask prune-files`** (§13) cleans up
+what earlier versions left: records no note links to, and files in
+`UPLOAD_DIR` with no record (an upload that failed half-way). (Files
+used to be kept forever, even when nothing used them.)
 
 ### 9.3 Rendering
 
@@ -1058,9 +1075,6 @@ overlooked:
   discovery mechanism next to backlinks (a strong, explicit signal).
 - **Inline image markdown.** Attachments are metadata, not embedded
   content (§9.3).
-- **Attachment cleanup / garbage collection.** An attachment with zero
-  remaining `note_attachments` rows is never auto-deleted from disk.
-  Not a problem at the scale this app is built for.
 - **An "attach an existing file" search/picker UI.** Removed after
   initial build — hash-based dedup on upload already provides reuse
   without needing a picker, and a search box across what's expected to
@@ -1121,6 +1135,9 @@ overlooked:
   automatically. A database from before notes in Trash were left out of
   labels, links and search (§3) still holds them for notes already in
   Trash; one `flask reindex` clears that up.
+- **`flask prune-files`** deletes uploaded files no note uses, and their
+  records (§9.2). Since files are now deleted as soon as nothing uses
+  them, it's only needed once, for files earlier versions left behind.
 
 ## 14. Network safety
 

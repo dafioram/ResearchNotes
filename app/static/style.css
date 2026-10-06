@@ -871,6 +871,10 @@ kbd {
 }
 .trash-list { border-top: 1px solid var(--rule); margin-bottom: 24px; }
 .trash-row form { margin: 0; }
+.trash-note { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; min-width: 0; }
+.trash-title { font-family: var(--serif); font-size: 17px; color: var(--ink); }
+.trash-meta { font-size: 13px; color: var(--ink-faint); }
+.trash-actions { display: flex; gap: 8px; flex-shrink: 0; margin-left: 14px; }
 
 .hint {
   font-family: var(--mono);

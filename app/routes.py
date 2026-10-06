@@ -294,14 +294,45 @@ def _history_days(rows) -> list:
 
 @bp.route("/trash")
 def trash():
+    page = _requested_page()
+    size = current_app.config["PAGE_SIZE"]
+    rows, total = db.deleted_notes_page(size, (page - 1) * size)
+    pager = _pager("notes.trash", page, total)
+    if page > pager["total_pages"]:
+        return redirect(pager["last_page_url"])
     # Timestamps are stored in UTC; show the deletion date in the local
     # time of the machine running the app, which for this desktop app is
     # the user's own.
     notes = [
-        {"id": n["id"], "deleted_on": _local_date(n["deleted_at"])}
-        for n in db.list_deleted_notes()
+        {
+            "id": n["id"],
+            "title": md.first_line_text(n["body"]) or "(empty note)",
+            "line_count": md.line_count(n["body"]),
+            "deleted_on": _local_date(n["deleted_at"]),
+        }
+        for n in rows
     ]
-    return render_template("trash.html", notes=notes)
+    return render_template("trash.html", notes=notes, pager=pager)
+
+
+def _back_to_trash():
+    """Back to the Trash page the button was on (or the last one left)."""
+    page = request.args.get("page", type=int)
+    return redirect(url_for("notes.trash", page=page if page and page > 1 else None))
+
+
+@bp.route("/notes/<int:note_id>/delete-forever", methods=["POST"])
+def delete_forever(note_id):
+    if db.delete_forever([note_id]):
+        flash(f"Note {note_id} deleted permanently.")
+    return _back_to_trash()
+
+
+@bp.route("/trash/empty", methods=["POST"])
+def empty_trash():
+    count = db.delete_forever()
+    flash(f"Deleted {count} note{'' if count == 1 else 's'} permanently.")
+    return redirect(url_for("notes.trash"))
 
 
 def _local_date(iso_utc: str) -> str:
@@ -473,7 +504,7 @@ def delete_note(note_id):
 def restore_note(note_id):
     db.restore_note(note_id)
     flash(f"Note {note_id} restored.")
-    return redirect(url_for("notes.trash"))
+    return _back_to_trash()
 
 
 # ---------------------------------------------------------------------------
@@ -602,11 +633,6 @@ def api_note_lookup():
 # Attachments
 # ---------------------------------------------------------------------------
 
-def _attachment_disk_path(file_hash: str, extension: str) -> Path:
-    upload_dir = Path(current_app.config["UPLOAD_DIR"])
-    return upload_dir / file_hash[:2] / file_hash[2:4] / f"{file_hash}{extension}"
-
-
 def _wants_json() -> bool:
     """True for the edit page's in-place (fetch) requests, which get JSON
     back instead of a redirect, so the page never reloads."""
@@ -657,7 +683,7 @@ def upload_attachment(note_id):
             return _attachment_result(note_id, f"{display_name} is already attached.")
     else:
         mime_type = file.mimetype or mimetypes.guess_type(filename)[0] or "application/octet-stream"
-        disk_path = _attachment_disk_path(file_hash, extension)
+        disk_path = db.attachment_path(file_hash, extension)
         disk_path.parent.mkdir(parents=True, exist_ok=True)
         with open(disk_path, "wb") as f:
             f.write(data)
@@ -696,7 +722,7 @@ def serve_attachment(file_hash):
     row = db.get_attachment_by_hash(file_hash)
     if row is None:
         abort(404)
-    disk_path = _attachment_disk_path(file_hash, row["extension"])
+    disk_path = db.attachment_path(file_hash, row["extension"])
     if not disk_path.exists():
         abort(404)
     response = send_file(
