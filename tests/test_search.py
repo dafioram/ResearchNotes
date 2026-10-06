@@ -171,3 +171,14 @@ def test_number_search_puts_matching_numbers_first(client, app):
         ids = [r["id"] for r in dbmod.search_notes("1")]
     assert ids[:5] == [1, 10, 11, 12, 13]
     assert mention == 13
+
+
+def test_control_characters_are_ignored(client, app):
+    # A NUL made FTS5 fail ("unterminated string"): a 500 on the feed and
+    # in the [[ lookup. Found by test_properties.py.
+    with app.app_context():
+        note = dbmod.create_note("hello there", "2026-01-01")
+    assert search.parse("hel\x00lo\x01").words == ['"hello"']
+    banner = client.get("/?q=hel%00lo").data.decode().split('class="filter-banner">')[1]
+    assert " ".join(banner.split()[:3]) == "1 note matches"
+    assert client.get("/api/notes/lookup?q=a%00").status_code == 200

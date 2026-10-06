@@ -294,6 +294,19 @@ pytest -m browser
 
 Without Playwright or a Chromium they skip themselves.
 
+Beyond tests of each feature, the fast suite also has:
+
+- `test_invariants.py` -- hundreds of random create / edit / trash /
+  restore / delete-forever / attach / detach / restore-version steps,
+  checking after each that labels, links, the search index, files on
+  disk, History and versions are exactly what the notes say.
+- `test_properties.py` -- generated input (Hypothesis): rendering never
+  lets HTML or `javascript:` links through, what shows as a label or link
+  is what's stored, any search parses and runs, the network checks hold.
+- `test_query_plans.py` -- every page's queries read through an index
+  (checked with `EXPLAIN QUERY PLAN`), so a lost index fails a test
+  instead of quietly slowing pages down.
+
 To check that pages still cost the same however many notes there are,
 time them on a throwaway database of ten years of notes (36,500 at 10 a
 day; your own `data/` is never touched):

@@ -390,3 +390,23 @@ def test_written_links_are_left_alone():
 
 def test_bare_url_is_plain_text_in_titles():
     assert md.first_line_text("# Read https://a.com/x_y later") == "Read https://a.com/x_y later"
+
+
+def test_a_hash_running_into_an_address_is_not_a_label():
+    # Found by test_properties.py: "#http" was stored as a label, but the
+    # address became a link and no label was shown.
+    for text in ("#http://x.org", "#https://x.org/a", "see #ftp.x://y"):
+        assert md.extract_labels(text) == set()
+        assert "label-tag" not in md.render(text)
+    assert md.extract_labels("#http is a protocol") == {"http"}
+    assert "x.org" in md.render("#http://x.org") and 'href="http://x.org"' in md.render("#http://x.org")
+
+
+def test_a_label_right_after_a_quote_marker_counts():
+    # Found by test_properties.py: ">#idea" showed a label in the quote that
+    # wasn't stored.
+    assert md.extract_labels(">#idea\n> #also\n>>#nested\nx>#not") == {"idea", "also"}
+    html = md.render(">#idea")
+    assert html.startswith("<blockquote>") and 'class="label-tag"' in html
+    assert "label-tag" not in md.render("x>#not")
+    assert "label-tag" not in md.render(">>#nested")      # stays as typed, like it's stored

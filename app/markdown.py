@@ -60,8 +60,16 @@ INLINE_CODE_RE = re.compile(r"`([^`\n]+)`")
 # letter in any language ([^\W\d_]), so "#3" and "PR #42" aren't either,
 # then letters, digits, '.', '-' or '_', ending on a letter or digit so
 # that "#label." or "#label-" is just #label. "# Title" has a space after
-# the '#', so stays a header; in '##word' neither '#' qualifies.
-LABEL_RE = re.compile(r"(?<!\S)#([^\W\d_](?:[\w.-]*[^\W_])?)")
+# the '#', so stays a header; in '##word' neither '#' qualifies. And not
+# where it runs into "://": "#http://x.org" is the address (which becomes
+# a link), not a label "#http" that the note wouldn't show.
+_LABEL_BODY = r"#([^\W\d_](?:[\w.-]*[^\W_])?)(?![\w.-]*://)"
+LABEL_RE = re.compile(r"(?<!\S)" + _LABEL_BODY)
+# Reading a note's labels from its raw text also counts a quote's '>' at
+# the very start of a line as the line's start: the renderer has taken
+# that '>' off before it looks, so ">#idea" shows a label -- and must
+# store one. (">>#idea" doesn't: inside the quote it's ">#idea".)
+_LABEL_IN_TEXT_RE = re.compile(r"(?:(?<!\S)|(?<=^>))" + _LABEL_BODY, re.MULTILINE)
 NOTE_REF_RE = re.compile(r"\[\[(\d+)\]\]")
 # [[later]] / [[later: a hint]] -- a link to fill in later (spec §6.2).
 LATER_RE = re.compile(r"\[\[\s*later\s*(?::\s*([^\[\]\n]*?)\s*)?\]\]", re.IGNORECASE)
@@ -108,7 +116,7 @@ def extract_labels(body: str) -> set[str]:
     ignoring anything inside code blocks/spans."""
     stash = _Stash()
     stripped = _strip_code(body, stash)
-    return {m.group(1).lower() for m in LABEL_RE.finditer(stripped)}
+    return {m.group(1).lower() for m in _LABEL_IN_TEXT_RE.finditer(stripped)}
 
 
 def extract_note_refs(body: str) -> set[int]:
