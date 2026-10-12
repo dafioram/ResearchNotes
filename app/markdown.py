@@ -35,6 +35,8 @@ Supported standard Markdown subset:
                       scheme, e.g. javascript:, stays plain text)
     https://...       a bare http(s) address becomes a link
     - item / * item    unordered lists
+    - [ ] / - [x]      a checkbox at the start of a list item: shown, not
+                       clickable (change it by editing the text)
     1. item            ordered lists
     > quote            blockquotes
     ---  ***  ___      horizontal rules
@@ -467,6 +469,20 @@ def _starts_block(lines: list[str], i: int) -> bool:
     )
 
 
+# A checkbox at the start of a list item (spec §5): "- [ ] to do",
+# "- [x] done". Shown, not clickable -- it changes by editing the text.
+TASK_RE = re.compile(r"^\[([ xX])\]\s+(.*)$")
+
+
+def _list_item(text: str, inline) -> str:
+    m = TASK_RE.match(text)
+    if not m:
+        return f"<li>{inline(text)}</li>"
+    done = m.group(1) != " "
+    box = '<span class="task-box checked" title="done"></span>' if done else '<span class="task-box" title="to do"></span>'
+    return f'<li class="task{" done" if done else ""}">{box}{inline(m.group(2))}</li>'
+
+
 def _render_lines(lines: list[str], stash: _Stash, existing_ids) -> list[str]:
     """Turn a list of (already HTML-escaped, code-stashed) lines into a list
     of block-level HTML strings."""
@@ -536,7 +552,7 @@ def _render_lines(lines: list[str], stash: _Stash, existing_ids) -> list[str]:
         if UL_RE.match(line):
             items = []
             while i < n and UL_RE.match(lines[i]):
-                items.append(f"<li>{inline(UL_RE.match(lines[i]).group(1))}</li>")
+                items.append(_list_item(UL_RE.match(lines[i]).group(1), inline))
                 i += 1
             out.append("<ul>" + "".join(items) + "</ul>")
             continue
@@ -544,7 +560,7 @@ def _render_lines(lines: list[str], stash: _Stash, existing_ids) -> list[str]:
         if OL_RE.match(line):
             items = []
             while i < n and OL_RE.match(lines[i]):
-                items.append(f"<li>{inline(OL_RE.match(lines[i]).group(1))}</li>")
+                items.append(_list_item(OL_RE.match(lines[i]).group(1), inline))
                 i += 1
             out.append("<ol>" + "".join(items) + "</ol>")
             continue

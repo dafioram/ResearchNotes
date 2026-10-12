@@ -206,3 +206,21 @@ def test_versions_and_graph_titles_show_ref_titles(client, app):
     expected = f'Follow-up to <span class="ref-title" title="No. {target}: Target">Target'
     assert expected in client.get(f"/notes/{follow}/versions").data.decode()
     assert expected in client.get(f"/graph/{follow}").data.decode()
+
+
+# ---------------------------------------------------------------------
+# Hover preview (spec §6.2)
+# ---------------------------------------------------------------------
+
+def test_a_preview_is_the_notes_rendered_text(client, app):
+    with app.app_context():
+        note = dbmod.create_note("# Spacing effect\n\nRepetition **over time**. $x^2$", "2026-01-01")
+        gone = dbmod.create_note("# In Trash", "2026-01-01")
+        dbmod.soft_delete_note(gone)
+    html = client.get(f"/notes/{note}/preview").data.decode()
+    assert f">No. {note}</a>" in html and "2026-01-01" in html
+    assert "<h1>Spacing effect</h1>" in html and "<strong>over time</strong>" in html
+    assert '<span class="math math-inline">$x^2$</span>' in html
+    assert "<html" not in html and "Backlinks" not in html        # a bare fragment, the text only
+    assert client.get(f"/notes/{gone}/preview").status_code == 404
+    assert client.get("/notes/999/preview").status_code == 404

@@ -83,7 +83,8 @@ in [spec.md](spec.md).
   picking one inserts `[[123]]`. A reference shows as the linked note's
   title (with its number small after it), or a dashed "ghost" marker if
   the note doesn't exist (broken references are visible at a glance,
-  never silently swallowed).
+  never silently swallowed). Rest the pointer on one to preview the
+  linked note in a small card beside it.
 - **`[[later]]`** (or `[[later: Bjork 1994]]`, with a hint) marks a link
   to fill in later, when the note doesn't exist yet. It's the last choice
   in the `[[` list, links nowhere, and `has:later` (the sidebar's *Links
@@ -156,7 +157,8 @@ Supported: `# .. ######` headers (space required), `**bold**` / `__bold__`,
 code blocks, `[text](url)` links (http, https, mailto or relative
 addresses; other schemes such as `javascript:` stay plain text), bare
 `https://...` addresses (linked as they are),
-`- ` / `* ` unordered lists, `1. ` ordered
+`- ` / `* ` unordered lists (`- [ ] ` and `- [x] ` start an item with an
+empty or ticked checkbox -- shown, not clickable; edit the text to tick it), `1. ` ordered
 lists, `> ` blockquotes, `---`/`***`/`___` horizontal rules, and paragraphs
 (a single newline becomes `<br>`; a blank line starts a new paragraph).
 
