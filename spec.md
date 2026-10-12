@@ -400,6 +400,7 @@ Hand-rolled, not CommonMark. Supported:
 | `[text](url)` | `<a>` |
 | a bare `http(s)://` address | `<a>` (the address as its text) |
 | `- item` / `* item` | `<ul><li>` |
+| `- [ ] item` / `- [x] item` | a checkbox, empty or ticked, at the start of a list item -- shown only; it changes by editing the text |
 | `1. item` | `<ol><li>` |
 | `> quote` | `<blockquote>` |
 | `---` / `***` / `___` | `<hr>` |

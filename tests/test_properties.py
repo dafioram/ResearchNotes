@@ -21,7 +21,8 @@ MARKUP = st.lists(
                     + ["javascript:", "http://x.org", "[[", "]]", "[[later", "```", "<script>",
                        "onerror=", "é", "日", "\r\n", "\t", "#lab", "data:", "&lt;", "\x00", "1",
                        "$", "$$", "\\$", "$x$", "|", "|---|", "\\|", "| a |\n|-|\n",
-                       "![a](/files/191ff6f6b235)", "![", "](/files/", "4372a0cb0d86)"]),
+                       "![a](/files/191ff6f6b235)", "![", "](/files/", "4372a0cb0d86)",
+                       "- [ ] ", "- [x] ", "[ ]"]),
     max_size=60,
 ).map("".join)
 SAFE_TAGS = {"p", "br", "h1", "h2", "h3", "h4", "h5", "h6", "strong", "em", "del", "code", "pre",

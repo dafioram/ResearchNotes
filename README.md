@@ -156,7 +156,8 @@ Supported: `# .. ######` headers (space required), `**bold**` / `__bold__`,
 code blocks, `[text](url)` links (http, https, mailto or relative
 addresses; other schemes such as `javascript:` stay plain text), bare
 `https://...` addresses (linked as they are),
-`- ` / `* ` unordered lists, `1. ` ordered
+`- ` / `* ` unordered lists (`- [ ] ` and `- [x] ` start an item with an
+empty or ticked checkbox -- shown, not clickable; edit the text to tick it), `1. ` ordered
 lists, `> ` blockquotes, `---`/`***`/`___` horizontal rules, and paragraphs
 (a single newline becomes `<br>`; a blank line starts a new paragraph).
 

@@ -1302,3 +1302,28 @@ a.history-note:hover { color: var(--accent); text-decoration: underline; text-un
 
 .missing-file { padding: 22px 26px; }
 .missing-file h1 { font-size: 1.3em; margin: 0 0 10px; }
+
+/* Checkboxes in list items (spec §5): shown, not clickable. */
+.note-body ul > li.task { list-style: none; margin-left: -1.3em; }
+.task-box {
+  display: inline-block;
+  width: 0.85em;
+  height: 0.85em;
+  margin-right: 0.45em;
+  border: 1.5px solid var(--ink-soft);
+  border-radius: 2px;
+  vertical-align: -0.05em;
+  position: relative;
+}
+.task-box.checked { background: var(--accent); border-color: var(--accent); }
+.task-box.checked::after {
+  content: "";
+  position: absolute;
+  left: 0.24em;
+  top: 0.04em;
+  width: 0.22em;
+  height: 0.48em;
+  border: solid #fff;
+  border-width: 0 0.12em 0.12em 0;
+  transform: rotate(45deg);
+}

@@ -410,3 +410,28 @@ def test_a_label_right_after_a_quote_marker_counts():
     assert html.startswith("<blockquote>") and 'class="label-tag"' in html
     assert "label-tag" not in md.render("x>#not")
     assert "label-tag" not in md.render(">>#nested")      # stays as typed, like it's stored
+
+
+# ---------------------------------------------------------------------
+# Checkboxes in list items (spec §5)
+# ---------------------------------------------------------------------
+
+@pytest.mark.parametrize("line,html", [
+    ("- [ ] read Pyc", '<ul><li class="task"><span class="task-box" title="to do"></span>read Pyc</li></ul>'),
+    ("- [x] book room", '<ul><li class="task done"><span class="task-box checked" title="done"></span>book room</li></ul>'),
+    ("* [X] capital X", '<ul><li class="task done"><span class="task-box checked" title="done"></span>capital X</li></ul>'),
+    ("1. [ ] numbered", '<ol><li class="task"><span class="task-box" title="to do"></span>numbered</li></ol>'),
+])
+def test_checkboxes_in_list_items(line, html):
+    assert md.render(line) == html
+
+
+@pytest.mark.parametrize("line", ["- [] empty brackets", "- [x]no space", "- [y] other letter", "[ ] not in a list", "- `[ ]` code"])
+def test_not_a_checkbox(line):
+    assert "task-box" not in md.render(line)
+
+
+def test_a_checkbox_item_keeps_its_links_and_labels():
+    html = md.render("- [ ] read [[3]] #reading", {3: "Three"})
+    assert ">Three</a>" in html and 'class="label-tag"' in html
+    assert md.extract_labels("- [ ] read [[3]] #reading") == {"reading"}
