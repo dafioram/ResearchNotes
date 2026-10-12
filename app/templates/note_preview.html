@@ -1,0 +1,10 @@
+{# What hovering a [[link]] shows (preview.js, spec §6.2): the note's
+   number, date and rendered text. Expects: note. #}
+<div class="preview-head">
+  <a href="{{ url_for('notes.view_note', note_id=note['id']) }}">No. {{ note['id'] }}</a>
+  <span>{{ note['sort_date'] }}</span>
+  <span>{{ note['line_count'] }} line{{ 's' if note['line_count'] != 1 else '' }}</span>
+</div>
+<div class="note-body preview-body">
+  {{ note['html'] | safe }}
+</div>

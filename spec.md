@@ -635,6 +635,19 @@ tooltip) so a broken reference is visible at a glance instead of
 silently swallowed or erroring. Titles are looked up for just the ids
 the shown notes reference (`db.note_titles`), not by loading every note.
 
+**Hover preview.** Resting the pointer on a ref that's a link (in a
+rendered note, an opened feed card, a card's title, a version) shows the
+linked note in a small card beside it -- number, date, line count and its
+rendered text, math and figures included -- so you can see what a link
+is without leaving the page (`preview.js`, `/notes/<id>/preview`, a bare
+fragment). After a short pause (350 ms), so passing over links doesn't
+flash cards; it stays while the pointer is on the link or the card (to
+scroll a long note, or follow a link in it) and goes on leaving either,
+on Escape, or when the page scrolls. Links inside a card don't open
+cards of their own. A ghost has no preview. Each note is fetched once
+per page. Refs shown as text (backlink rows, History) have none: they
+sit inside links of their own.
+
 **Writing a link.** Typing `[[` in the editor opens a list of notes to
 link to, under the cursor (`app.js`, backed by `/api/notes/lookup`):
 

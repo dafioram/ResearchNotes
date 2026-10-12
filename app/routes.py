@@ -556,6 +556,17 @@ def view_note(note_id):
     return _render_note_page(row, "view")
 
 
+@bp.route("/notes/<int:note_id>/preview")
+def note_preview(note_id):
+    """A note's rendered text alone, as a bare HTML fragment: what pops up
+    when hovering a [[link]] to it (spec §6.2). 404 for a note that
+    doesn't exist or is in Trash, which shows no preview."""
+    row = db.get_note(note_id)
+    if row is None:
+        abort(404)
+    return render_template("note_preview.html", note=_note_view_model(row))
+
+
 @bp.route("/notes/<int:note_id>/fragment")
 def note_fragment(note_id):
     """Full rendered body, attachments and backlinks for a note, as a bare

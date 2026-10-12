@@ -1327,3 +1327,32 @@ a.history-note:hover { color: var(--accent); text-decoration: underline; text-un
   border-width: 0 0.12em 0.12em 0;
   transform: rotate(45deg);
 }
+
+/* Hover preview of a [[link]] (spec §6.2): the note, small, beside it. */
+.note-preview {
+  position: fixed;
+  z-index: 60;
+  width: min(520px, calc(100vw - 16px));
+  max-height: 360px;
+  overflow-y: auto;
+  background: var(--card);
+  border: 1px solid var(--ink);
+  box-shadow: 0 6px 22px rgba(32, 36, 31, 0.18);
+  padding: 10px 16px 6px;
+  font-size: 14px;
+}
+.note-preview .preview-head {
+  display: flex;
+  gap: 12px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink-faint);
+  border-bottom: 1px solid var(--rule-soft);
+  padding-bottom: 6px;
+  margin-bottom: 8px;
+}
+.note-preview .preview-head a { color: var(--accent); }
+.note-preview .preview-body h1 { font-size: 1.35em; margin: 0.2em 0 0.4em; }
+.note-preview .preview-body h2 { font-size: 1.15em; }
+.note-preview .preview-body figure img { max-height: 180px; width: auto; }
+.note-preview .preview-body { border: none; padding: 0; margin: 0; background: none; box-shadow: none; }
